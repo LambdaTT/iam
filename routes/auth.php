@@ -1,0 +1,93 @@
+<?php
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                                                                                                                //
+// IAM Preset for DynamoPHP                                                                                                                                       //
+//                                                                                                                                                                //
+// IAM is an alias for Identity and Access Manager, which manages user's authentication, permissions, access profiles and teams within an application.            //
+// Many apps use this kind of functionality and this is a complete ready-to-work preset, that you can import into your DynamoPHP application.                     //
+//                                                                                                                                                                //
+// See more info about it at: https://github.com/gabriel-guelfi/IAM                                                                                               //
+//                                                                                                                                                                //
+// MIT License                                                                                                                                                    //
+//                                                                                                                                                                //
+// Copyright (c) 2021 Dynamo PHP Community                                                                                                                        //
+//                                                                                                                                                                //
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to          //
+// deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or         //
+// sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:                            //
+//                                                                                                                                                                //
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.                                 //
+//                                                                                                                                                                //
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS     //
+// FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY           //
+// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.     //
+//                                                                                                                                                                //
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+namespace application\routes\api\iam;
+
+use \engine\WebService;
+
+class Auth extends WebService
+{
+  public function init()
+  {
+    $this->setAntiXsrfValidation(false);
+
+    // SESSION ENDPOINTS:
+    $this->addEndpoint('GET', '/v1/logged-user', function () {
+      $user = $this->getService('iam/session')->getLoggedUser();
+      if (empty($user)) return $this->response->withStatus(401);
+      return $this->response->withData($user);
+    }, true);
+
+    $this->addEndpoint('POST', '/v1/login-sso/?credentials?', function ($params) {
+      return $this->response
+        ->withStatus(201)
+        ->withData($this->getService('iam/session')->loginSSO($params['credentials']));
+    });
+
+    $this->addEndpoint('POST', '/v1/login-token/?authtoken?', function ($params) {
+      if ($this->getService('iam/authtoken')->authenticate($params['authtoken']) == false)
+        return $this->response->withStatus(401);
+
+      $data = $this->getService('iam/session')->loginByAuthToken($params['authtoken']);
+      $data->xsrfToken = $this->xsrfToken();
+
+      return $this->response
+        ->withStatus(201)
+        ->withData($data);
+    });
+
+    $this->addEndpoint('POST', '/v1/login', function ($params) {
+      $data = $this->getService('iam/session')->login($params);
+      $data->xsrfToken = $this->xsrfToken();
+
+      return $this->response
+        ->withStatus(201)
+        ->withData($data);
+    });
+
+    $this->addEndpoint('DELETE', '/v1/logout', function ($params) {
+      return $this->response
+        ->withStatus(200)
+        ->withData($this->getService('iam/session')->logout($params));
+    });
+
+    // AUTH TOKEN ENDPOINTS:
+    $this->addEndpoint('GET', '/v1/validate-token/?authtoken?', function ($params) {
+      if ($this->getService('iam/authtoken')->authenticate($params['authtoken']) == false)
+        return $this->response->withStatus(401);
+
+      return $this->response->withStatus(204);
+    });
+
+    $this->addEndpoint('GET', '/v1/renew-token', function () {
+      $user = $this->getService('iam/session')->getLoggedUser();
+      if (empty($user)) return $this->response->withStatus(401);
+
+      return $this->response
+        ->withData($this->getService('iam/authtoken')->create($user->ds_key, 7 * 24 * 60 * 60)); // Token valid for 7 days.
+    }, true);
+  }
+}
