@@ -24,9 +24,9 @@
 //                                                                                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace application\routes\api\iam;
+namespace Iam\Routes;
 
-use \engine\WebService;
+use SplitPHP\WebService;
 
 class Auth extends WebService
 {

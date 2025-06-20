@@ -24,9 +24,9 @@
 //                                                                                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace application\routes\api\iam;
+namespace Iam\Routes;
 
-use \engine\WebService;
+use SplitPHP\WebService;
 use Exception;
 
 class Accessprofiles extends WebService
@@ -135,7 +135,7 @@ class Accessprofiles extends WebService
       ]);
   
       $profile = $this->getService('iam/accessprofile')->get(['ds_key' => $params['profileKey']]);
-      $module = $this->getService('application_module')->get(['ds_key' => $params['moduleKey']]);
+      $module = $this->getService('modcontrol/control')->get(['ds_key' => $params['moduleKey']]);
   
       if (empty($module) || empty($profile)) throw new Exception("Invalid params", 400);
   
@@ -154,7 +154,7 @@ class Accessprofiles extends WebService
       ]);
   
       $profile = $this->getService('iam/accessprofile')->get(['ds_key' => $params['profileKey']]);
-      $module = $this->getService('application_module')->get(['ds_key' => $params['moduleKey']]);
+      $module = $this->getService('modcontrol/control')->get(['ds_key' => $params['moduleKey']]);
   
       if (empty($module) || empty($profile)) throw new Exception("Invalid params", 400);
   

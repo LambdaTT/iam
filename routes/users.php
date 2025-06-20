@@ -24,9 +24,9 @@
 //                                                                                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace application\routes\api\iam;
+namespace Iam\Routes;
 
-use \engine\WebService;
+use SplitPHP\WebService;
 use Exception;
 
 class Users extends WebService

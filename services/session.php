@@ -24,11 +24,11 @@
 //                                                                                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace application\services\iam;
+namespace Iam\Services;
 
-use \engine\Service;
-use \engine\Utils;
-use \engine\Request;
+use SplitPHP\Service;
+use SplitPHP\Utils;
+use SplitPHP\Request;
 use Exception;
 
 class Session extends Service

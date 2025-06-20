@@ -24,9 +24,9 @@
 //                                                                                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace application\services\iam;
+namespace Iam\Services;
 
-use \engine\Service;
+use SplitPHP\Service;
 use Exception;
 
 class User extends Service
@@ -122,6 +122,8 @@ class User extends Service
       'dt_updated'
     ]);
 
+    $data = $this->filterUserData($data);
+
     // Set default values:
     $data['ds_key'] = 'usr-' . uniqid();
     $loggedUser = $this->getService('iam/session')->getLoggedUser();
@@ -165,6 +167,8 @@ class User extends Service
       'dt_created',
       'dt_updated'
     ]);
+
+    $data = $this->filterUserData($data);
 
     // Sets default values:
     $loggedUsr = $this->getService('iam/session')->getLoggedUser();

@@ -1,6 +1,6 @@
 <?php
-namespace application\routes\api\iam;
-use \engine\WebService;
+namespace Iam\Routes;
+use SplitPHP\WebService;
 class Permissions extends WebService
 {
   public function init()

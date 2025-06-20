@@ -24,10 +24,10 @@
 //                                                                                                                                                                //
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-namespace application\services\iam;
+namespace Iam\Services;
 
-use \engine\Service;
-use \engine\System;
+use SplitPHP\Service;
+use SplitPHP\System;
 use Exception;
 
 class Permission extends Service
