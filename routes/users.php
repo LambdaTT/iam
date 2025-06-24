@@ -96,6 +96,13 @@ class Users extends WebService
       $profiles = json_decode($data['selected_profiles'], true);
       unset($data['selected_profiles']);
 
+      if (!empty($_FILES['user_avatar'])) {
+        $data['user_avatar'] = [
+          'name' => $_FILES['user_avatar']['name'],
+          'path' => $_FILES['user_avatar']['tmp_name'],
+        ];
+      }
+
       $newUser = $this->getService('iam/user')->create($data);
 
       if (!empty($profiles))
@@ -235,7 +242,7 @@ class Users extends WebService
     }, false);
 
     $this->addEndpoint('GET', '/redirect/reset-password/?token?', function ($params) {
-      $url = "https://admin-" . TENANT_DOMAIN . ".sindiapp.app.br/reset-password/{$params['token']}";
+      $url = "https://admin-" . TENANT_KEY . ".sindiapp.app.br/reset-password/{$params['token']}";
       header("Location: {$url}");
       die;
     }, false);

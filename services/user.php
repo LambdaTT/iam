@@ -28,12 +28,22 @@ namespace Iam\Services;
 
 use SplitPHP\Service;
 use Exception;
+use SplitPHP\Database\Dbmetadata;
 
 class User extends Service
 {
+  private int $pswdLvl = 0; // Password level, default is 0 (no requirements)
+
   public function init()
   {
     $this->setConfigs();
+  }
+
+  public function setPswdLvl(int $pswdLvl)
+  {
+    if ($pswdLvl < 0) $pswdLvl = 0;
+    if ($pswdLvl > 3) $pswdLvl = 3; // 0 = no requirements, 1 = uppercase, 2 = numbers, 3 = special
+    $this->pswdLvl = $pswdLvl;
   }
 
   // Get a list of registered users, based on parameters.
@@ -53,6 +63,7 @@ class User extends Service
           usr.ds_key,
           usr.do_active,
           usr.id_iam_user,
+          usr.dt_created,
           CONCAT(usr.ds_first_name, ' ', usr.ds_last_name) as fullName,
           DATE_FORMAT(usr.dt_last_access, '%d/%m/%Y %T') as dtLastAccess,
           fle.ds_url as ds_avatar_img_url,
@@ -122,21 +133,21 @@ class User extends Service
       'dt_updated'
     ]);
 
-    $data = $this->filterUserData($data);
+    // Treat Avatar img file upload:
+    if (!empty($data['user_avatar'])) {
+      $avatarFile = $this->getService('filemanager/file')
+        ->create($data['user_avatar']['name'], $data['user_avatar']['path'], 'Y');
+      if (!empty($avatarFile))
+        $data['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
+    }
+
+    $this->filterUserData($data);
 
     // Set default values:
     $data['ds_key'] = 'usr-' . uniqid();
     $loggedUser = $this->getService('iam/session')->getLoggedUser();
     $data['id_iam_user_created'] = empty($loggedUser) ? null : $loggedUser->id_iam_user;
-    $data['ds_password'] = hash('sha256', $data['ds_password']);
-
-    // Treat Avatar img file upload:
-    if (!empty($_FILES['user_avatar'])) {
-      $avatarFile = $this->getService('filemanager/file')
-        ->create($_FILES['user_avatar']['name'], $_FILES['user_avatar']['tmp_name'], 'Y');
-      if (!empty($avatarFile))
-        $data['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
-    }
+    $data['ds_password'] = password_hash($data['ds_password'], PASSWORD_DEFAULT);
 
     return $this->getDao('IAM_USER')->insert($data);
   }
@@ -240,6 +251,7 @@ class User extends Service
     $results = [];
     // Re-create user's profiles setup.
     foreach ($profiles as $prf) {
+      $prf = (array)$prf; // Ensure $prf is an array
       $prf = $this->getService('iam/accessprofile')->get(['ds_key' => $prf['ds_key']]);
 
       $results[] = $this->getDao('IAM_ACCESSPROFILE_USER')->insert([
@@ -277,7 +289,12 @@ class User extends Service
     return $token;
   }
 
-  // Check for valid e-mail
+  /**
+   * Validates the e-mail address of a user.
+   * @param array $data The data containing the e-mail address to validate.
+   * @param ?int $userId The ID of the user to exclude from the validation check (optional).
+   * @throws Exception If the e-mail is invalid or already registered by another user.
+   */
   private function validateEmail($data, $userId = null)
   {
     // Check if the e-mail contains the proper string pattern.
@@ -298,7 +315,16 @@ class User extends Service
     if (!empty($dbData)) throw new Exception("Já existe outro usuário cadastrado com este e-mail.", CONFLICT);
   }
 
-  // Check for valid password string pattern.
+  /**
+   * Validates the password based on the set password level.
+   * Password levels:
+   * 0 - No requirements (minimum length of 3 characters)
+   * 1 - At least one uppercase letter
+   * 2 - Level 1 + At least one number
+   * 3 - Level 2 + At least one special character (!@#$_)
+   * @param ?string $password The password to validate.
+   * @throws Exception If the password does not meet the security requirements.
+   */
   private function validatePassword(?string $password = null)
   {
     $failure = false;
@@ -307,15 +333,21 @@ class User extends Service
       $failure = true;
     }
 
-    // if (empty(preg_match('/[A-Z]/m', $password))) $failure = true;
+    if ($this->pswdLvl > 0) {
+      if (empty(preg_match('/[A-Z]/m', $password))) $failure = true;
 
-    // if (empty(preg_match('/[a-z]/m', $password))) $failure = true;
+      if (empty(preg_match('/[a-z]/m', $password))) $failure = true;
+    }
 
-    // if (empty(preg_match('/[0-9]/m', $password))) $failure = true;
+    if ($this->pswdLvl > 1) {
+      if (empty(preg_match('/[0-9]/m', $password))) $failure = true;
+    }
 
-    // if (empty(preg_match('/[!@#$_]/m', $password))) $failure = true;
+    if ($this->pswdLvl > 2) {
+      if (empty(preg_match('/[!@#$_]/m', $password))) $failure = true;
+    }
 
-    if ($failure) throw new Exception('A senha precisa conter no mínimo 3 caracteres.', VALIDATION_FAILED);
+    if ($failure) throw new Exception('A senha fornecida não atende aos requisitos de segurança.', VALIDATION_FAILED);
   }
 
   /**
@@ -323,40 +355,33 @@ class User extends Service
    *  @param  array $data The array to be filtered
    *  @return array  An array containing only user-related fields
    */
-  public function filterUserData($data)
+  public function filterUserData(&$data)
   {
-    $user = $this->getService('utils/misc')->dataWhiteList($data, [
-      'ds_email',
-      'ds_password',
-      'ds_first_name',
-      'ds_last_name',
-      'ds_phone1',
-      'ds_phone2',
-      'ds_company',
-      'id_fmn_file_avatar',
-      'do_active',
-      'do_hidden',
-    ]);
-    return $user;
+    require_once CORE_PATH . '/database/' . DBTYPE . '/class.dbmetadata.php';
+    $tbInfo = Dbmetadata::tbInfo('IAM_USER');
+
+    $data = $this->getService('utils/misc')->dataWhiteList($data, array_map(function ($c) {
+      return $c['Field'];
+    }, $tbInfo['columns']));
+
+    return $data;
   }
+
   /**
    * Clean the content of $data, removing any user-related information.
    * @param   array $data The array to be cleaned
    * @return  array Returns the cleaned $data array
    */
-  public function removeUserData($data)
+  public function removeUserData(&$data)
   {
-    return $this->getService('utils/misc')->dataBlackList($data, [
-      'ds_email',
-      'ds_password',
-      'ds_first_name',
-      'ds_last_name',
-      'ds_phone1',
-      'ds_phone2',
-      'ds_company',
-      'id_fmn_file_avatar',
-      'do_hidden',
-    ]);
+    require_once CORE_PATH . '/database/' . DBTYPE . '/class.dbmetadata.php';
+    $tbInfo = Dbmetadata::tbInfo('IAM_USER');
+
+    $data = $this->getService('utils/misc')->dataBlackList($data, array_map(function ($c) {
+      return $c['Field'];
+    }, $tbInfo['columns']));
+
+    return $data;
   }
   /**
    * Check if there are any user-related fields in $data

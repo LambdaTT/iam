@@ -37,16 +37,11 @@ class Accessprofile extends Service
       ->bindParams($params)
       ->find(
         "SELECT 
+          id_iam_accessprofile, 
           ds_title, 
           ds_tag, 
           dt_created, 
-          do_active, 
-          id_iam_accessprofile, 
-          ds_key, 
-          (CASE
-            WHEN do_active = 'Y' THEN 'Sim'
-            WHEN do_active = 'N' THEN 'Não'
-          END) as activeText
+          ds_key 
         FROM `IAM_ACCESSPROFILE` "
       );
   }
@@ -85,7 +80,8 @@ class Accessprofile extends Service
 
     // Set default values:
     $data['ds_key'] = uniqid();
-    $data['id_iam_user_created'] = $this->getService('iam/session')->getLoggedUser()->id_iam_user;
+    $loggedUser = $this->getService('iam/session')->getLoggedUser();
+    $data['id_iam_user_created'] = $loggedUser ? $loggedUser->id_iam_user : null;
 
     return $this->getDao('IAM_ACCESSPROFILE')->insert($data);
   }
