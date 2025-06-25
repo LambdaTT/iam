@@ -10,117 +10,18 @@ class Accessprofiles extends Cli
   public function init()
   {
     $this->addCommand('list', function ($args) {
-      // Extract and normalize our options
-      $limit   = isset($args['--limit']) ? (int)$args['--limit'] : 10;
-      $sortBy  = $args['--sort-by']         ?? null;
-      $sortDir = $args['--sort-direction']  ?? 'ASC';
-      unset($args['--limit'], $args['--sort-by'], $args['--sort-direction']);
+      $getRows = function ($params) {
+        return $this->getService('iam/accessprofile')->list($params);
+      };
 
-      $page = isset($args['--page']) ? (int)$args['--page'] : 1;
-      unset($args['--page']);
+      $columns = [
+        'id_iam_accessprofile' => 'ID',
+        'ds_title'             => 'Title',
+        'tx_description'       => 'Description',
+        'ds_tag'               => 'Tag',
+      ];
 
-      // --- <== HERE: open STDIN in BLOCKING mode (no stream_set_blocking) ===>
-      $stdin = fopen('php://stdin', 'r');
-      // on *nix, disable line buffering & echo
-      if (DIRECTORY_SEPARATOR !== '\\') {
-        system('stty -icanon -echo');
-      }
-
-      $exit = false;
-      while (! $exit) {
-        // Clear screen + move cursor home
-        if (DIRECTORY_SEPARATOR === '\\') {
-          system('cls');
-        } else {
-          echo "\033[2J\033[H";
-        }
-
-        // Header & hints
-        Utils::printLn($this->getService('utils/clihelper')->ansi("Welcome to the IAM Access Profiles List Command!\n", 'color: cyan; font-weight: bold'));
-        Utils::printLn("HINTS:");
-        Utils::printLn("  • --limit={$limit}   (items/page)");
-        Utils::printLn("  • --sort-by={$sortBy}   --sort-direction={$sortDir}");
-        if (DIRECTORY_SEPARATOR === '\\') {
-          Utils::printLn("  • Press 'n' = next page, 'p' = previous page, 'q' = quit");
-        } else {
-          Utils::printLn("  • ←/→ arrows to navigate pages, 'q' to quit");
-        }
-        Utils::printLn("  • Press 'ctrl+c' to exit at any time");
-        Utils::printLn();
-
-        // Fetch & render
-        $params = array_merge($args, [
-          '$limit' => $limit,
-          '$limit_multiplier' => 1, // No multiplier for pagination
-          '$page'  => $page,
-        ]);
-        if ($sortBy) {
-          $params['$sort_by']        = $sortBy;
-          $params['$sort_direction'] = $sortDir;
-        }
-
-        $rows = $this->getService('iam/accessprofile')->list($params);
-
-        if (empty($rows)) {
-          Utils::printLn("  >> No access profiles found on page {$page}.");
-        } else {
-          Utils::printLn(" Page {$page} — showing " . count($rows) . " items");
-          Utils::printLn(str_repeat('─', 60));
-          $this->getService('utils/clihelper')->table($rows, [
-            'id_iam_accessprofile'      => 'ID',
-            'ds_title'                  => 'Title',
-            'tx_description'            => 'Description',
-            'ds_tag'                    => 'Tag',
-          ]);
-        }
-
-        // --- <== HERE: wait for exactly one keypress, blocking until you press ===>
-        $c = fgetc($stdin);
-        if (DIRECTORY_SEPARATOR === '\\') {
-          $input = strtolower($c);
-        } else {
-          if ($c === "\033") {             // arrow keys start with ESC
-            $input = $c . fgetc($stdin) . fgetc($stdin);
-          } else {
-            $input = $c;
-          }
-        }
-
-        // Handle navigation
-        if (DIRECTORY_SEPARATOR === '\\') {
-          switch ($input) {
-            case 'n':
-              $page++;
-              break;
-            case 'p':
-              $page = max(1, $page - 1);
-              break;
-            case 'q':
-              $exit = true;
-              break;
-          }
-        } else {
-          switch ($input) {
-            case "\033[C": // →
-              $page++;
-              break;
-            case "\033[D": // ←
-              $page = max(1, $page - 1);
-              break;
-            case 'q':
-              $exit = true;
-              break;
-          }
-        }
-      }
-
-      // Restore terminal settings on *nix
-      if (DIRECTORY_SEPARATOR !== '\\') {
-        system('stty sane');
-      }
-
-      // Cleanup
-      fclose($stdin);
+      $this->getService('utils/misc')->printDataTable("Access Profiles List", $getRows, $columns, $args);
     });
 
     $this->addCommand('create', function () {
@@ -167,9 +68,7 @@ class Accessprofiles extends Cli
       Utils::printLn("  >> Access Profile with ID {$profileId} removed successfully!");
     });
 
-    $this->addCommand('set:permissions', function(){
-      
-    });
+    $this->addCommand('set:permissions', function () {});
 
     $this->addCommand('help', function () {
       /** @var \Utils\Services\CliHelper $helper */
