@@ -9,7 +9,7 @@ class CreateTableAccessprofile extends Migration
 {
   public function apply()
   {
-    $this->Table('IAM_ACCESSPROFILE')
+    $this->Table('IAM_ACCESSPROFILE', 'Access Profile')
       ->id('id_iam_accessprofile')
       ->string('ds_key', 17)
       ->datetime('dt_created')->setDefaultValue(DbVocab::SQL_CURTIMESTAMP())
@@ -23,7 +23,7 @@ class CreateTableAccessprofile extends Migration
       ->Foreign('id_iam_user_created')->references('id_iam_user')->atTable('IAM_USER')->onUpdate(DbVocab::FKACTION_CASCADE)->onDelete(DbVocab::FKACTION_SETNULL)
       ->Foreign('id_iam_user_updated')->references('id_iam_user')->atTable('IAM_USER')->onUpdate(DbVocab::FKACTION_CASCADE)->onDelete(DbVocab::FKACTION_SETNULL);
 
-    $this->Table('IAM_ACCESSPROFILE_USER')
+    $this->Table('IAM_ACCESSPROFILE_USER', "User's Access Profile")
       ->id('id_iam_accessprofile_user')
       ->int('id_iam_accessprofile')
       ->int('id_iam_user')

@@ -9,7 +9,7 @@ class CreateTableUser extends Migration
 {
   public function apply()
   {
-    $this->Table('IAM_USER')
+    $this->Table('IAM_USER', 'User')
       ->id('id_iam_user')
       ->int('id_sso_userid')->nullable()->setDefaultValue(null)
       ->string('ds_key', 17)

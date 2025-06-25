@@ -9,7 +9,7 @@ class CreateTableSession extends Migration
 {
   public function apply()
   {
-    $this->Table('IAM_SESSION')
+    $this->Table('IAM_SESSION', 'IAM Session')
       ->id('id_iam_session')
       ->string('ds_key', 17)
       ->datetime('dt_created')->setDefaultValue(DbVocab::SQL_CURTIMESTAMP())

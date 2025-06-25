@@ -9,7 +9,7 @@ class CreateTableAuthtoken extends Migration
 {
   public function apply()
   {
-    $this->Table('IAM_AUTHTOKEN')
+    $this->Table('IAM_AUTHTOKEN', 'Auth Token')
       ->id('id_iam_authtoken')
       ->datetime('dt_created')->setDefaultValue(DbVocab::SQL_CURTIMESTAMP())
       ->datetime('dt_updated')->nullable()->setDefaultValue(null)
