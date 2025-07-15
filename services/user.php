@@ -34,7 +34,7 @@ class User extends Service
 {
   private int $pswdLvl = 0; // Password level, default is 0 (no requirements)
 
-  public function init()
+  public function init(): void
   {
     $this->setConfigs();
   }

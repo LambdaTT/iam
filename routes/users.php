@@ -31,7 +31,7 @@ use Exception;
 
 class Users extends WebService
 {
-  public function init()
+  public function init(): void
   {
     // USER PROFILES ENDPOINTS:
     $this->addEndpoint('GET', '/v1/profiles/?userKey?', function ($params) {

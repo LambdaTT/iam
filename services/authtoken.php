@@ -33,7 +33,7 @@ class Authtoken extends Service
   private $purgePeriod;
   private $purgeObsolete;
 
-  public function init()
+  public function init(): void
   {
     $this->purgeObsolete = true; // If false, does not perform obsolete tokens purging.
     $this->purgePeriod = 180; // Number of days in which any obsolete (expired and consumed) tokens will be purged.

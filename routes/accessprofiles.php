@@ -31,7 +31,7 @@ use Exception;
 
 class Accessprofiles extends WebService
 {
-  public function init()
+  public function init(): void
   {
     // PROFILE ENDPOINTS:
     $this->addEndpoint('GET', '/v1/accessprofile/?profileKey?', function ($params) {

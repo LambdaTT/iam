@@ -4,7 +4,7 @@ namespace Iam\Routes;
 use SplitPHP\WebService;
 class Applicationmodules extends WebService
 {
-  public function init()
+  public function init(): void
   {
     // MODULE ENDPOINTS:
     $this->addEndpoint('GET', '/v1/module/?moduleId?', function($params){

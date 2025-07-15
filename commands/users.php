@@ -8,7 +8,7 @@ use SplitPHP\Utils;
 
 class Users extends Cli
 {
-  public function init()
+  public function init(): void
   {
     $this->addCommand('list', function ($args) {
       $getRows = function ($params) {

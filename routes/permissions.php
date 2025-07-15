@@ -3,7 +3,7 @@ namespace Iam\Routes;
 use SplitPHP\WebService;
 class Permissions extends WebService
 {
-  public function init()
+  public function init(): void
   {
     $this->addEndpoint('GET', '/v1/user-permissions', function () {
       // auth user login:

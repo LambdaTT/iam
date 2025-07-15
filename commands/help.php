@@ -7,7 +7,7 @@ use SplitPHP\Utils;
 
 class Help extends Cli
 {
-  public function init()
+  public function init(): void
   {
     $this->addCommand('', function () {
       /** @var \Utils\Services\CliHelper $helper */
