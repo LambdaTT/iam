@@ -82,10 +82,10 @@ class Auth extends WebService
 
     $this->addEndpoint('DELETE', '/v1/logout', function (Request $r) {
       $token = $r->getBody('token') ?? null;
+      $this->getService('iam/session')->logout($token);
 
       return $this->response
-        ->withStatus(200)
-        ->withData($this->getService('iam/session')->logout($token));
+        ->withStatus(204);
     });
 
     // AUTH TOKEN ENDPOINTS:

@@ -36,7 +36,7 @@ class Permission extends Service
   public function permissionsByModule($profileKey)
   {
     // Get a list of all modules related to the profile:
-    $modules = $this->getService('iam/accessprofile')->profileModules($profileKey, ['$sort_by' => 1]);
+    $modules = $this->getService('iam/accessprofile')->getModules($profileKey, ['$sort_by' => 1]);
 
     // For each module found, retrieve a list of its permissions.
     $results = [];

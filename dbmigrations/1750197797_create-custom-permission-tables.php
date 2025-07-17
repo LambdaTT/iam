@@ -11,7 +11,7 @@ class CreateCustomPermissionTables extends Migration
   {
     $this->Table('IAM_CUSTOM_PERMISSION', 'Custom Permission')
       ->id('id_iam_custom_permission')
-      ->string('ds_key', 17)
+      ->string('ds_key', 100)
       ->datetime('dt_created')->setDefaultValue(DbVocab::SQL_CURTIMESTAMP())
       ->int('id_iam_user_created')->nullable()->setDefaultValue(null)
       ->string('ds_title', 100)

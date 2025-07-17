@@ -28,7 +28,6 @@ namespace Iam\Routes;
 
 use SplitPHP\Request;
 use SplitPHP\WebService;
-use Exception;
 use SplitPHP\Exceptions\BadRequest;
 
 class Accessprofiles extends WebService
@@ -36,7 +35,7 @@ class Accessprofiles extends WebService
   public function init()
   {
     // PROFILE ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/accessprofile/?profileKey?', function (Request $r) {
+    $this->addEndpoint('GET', '/v1/profile/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -53,7 +52,7 @@ class Accessprofiles extends WebService
       return $this->response->withData($data);
     });
 
-    $this->addEndpoint('GET', '/v1/accessprofile', function ($params) {
+    $this->addEndpoint('GET', '/v1/profile', function ($params) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -65,7 +64,7 @@ class Accessprofiles extends WebService
       return $this->response->withData($this->getService('iam/accessprofile')->list($params));
     });
 
-    $this->addEndpoint('POST', '/v1/accessprofile', function (Request $r) {
+    $this->addEndpoint('POST', '/v1/profile', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -79,7 +78,7 @@ class Accessprofiles extends WebService
       return $this->response->withStatus(201)->withData($this->getService('iam/accessprofile')->create($data));
     });
 
-    $this->addEndpoint('PUT', '/v1/accessprofile/?profileKey?', function (Request $r) {
+    $this->addEndpoint('PUT', '/v1/profile/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -94,13 +93,13 @@ class Accessprofiles extends WebService
 
       $data = $r->getBody();
 
-      $rows = $this->getService('iam/accessprofile')->updProfile($params, $data);
+      $rows = $this->getService('iam/accessprofile')->upd($params, $data);
       if ($rows < 1) return $this->response->withStatus(404);
 
       return $this->response->withStatus(204);
     });
 
-    $this->addEndpoint('DELETE', '/v1/accessprofile/?profileKey?', function (Request $r) {
+    $this->addEndpoint('DELETE', '/v1/profile/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -133,7 +132,7 @@ class Accessprofiles extends WebService
       $key = $r->getRoute()->params['profileKey'];
       $params = $r->getBody();
 
-      $data = $this->getService('iam/accessprofile')->profileModules($key, $params);
+      $data = $this->getService('iam/accessprofile')->getModules($key, $params);
 
       return $this->response->withData($data);
     });
@@ -243,24 +242,6 @@ class Accessprofiles extends WebService
       }
 
       return $this->response->withStatus(204);
-    });
-
-    $this->addEndpoint('POST', '/v1/permission', function (Request $r) {
-      // Auth user login:
-      if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-
-      // Validate user permissions:
-      $this->getService('iam/permission')->validatePermissions([
-        'IAM_CUSTOM_PERMISSION' => 'C'
-      ]);
-
-      $data = $r->getBody();
-
-      $result = $this->getService('iam/permission')->createExecPermission($data);
-
-      return $this->response
-        ->withStatus(201)
-        ->withData($result);
     });
   }
 }

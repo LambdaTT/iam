@@ -141,7 +141,7 @@ class User extends Service
     // Treat Avatar img file upload:
     if (!empty($data['user_avatar'])) {
       $avatarFile = $this->getService('filemanager/file')
-        ->create($data['user_avatar']['name'], $data['user_avatar']['path'], 'Y');
+        ->add($data['user_avatar']['name'], $data['user_avatar']['path'], 'Y');
       if (!empty($avatarFile))
         $data['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
@@ -209,7 +209,7 @@ class User extends Service
       }
 
       $avatarFile = $this->getService('filemanager/file')
-        ->create($_FILES['user_avatar']['name'], $_FILES['user_avatar']['tmp_name'], 'Y');
+        ->add($_FILES['user_avatar']['name'], $_FILES['user_avatar']['tmp_name'], 'Y');
       if (!empty($avatarFile))
         $data['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
@@ -255,9 +255,8 @@ class User extends Service
 
     $results = [];
     // Re-create user's profiles setup.
-    foreach ($profiles as $prf) {
-      $prf = (array)$prf; // Ensure $prf is an array
-      $prf = $this->getService('iam/accessprofile')->get(['ds_key' => $prf['ds_key']]);
+    foreach ($profiles as $prfKey) {
+      $prf = $this->getService('iam/accessprofile')->get(['ds_key' => $prfKey]);
 
       $results[] = $this->getDao('IAM_ACCESSPROFILE_USER')->insert([
         'id_iam_user' => $userId,
@@ -269,14 +268,14 @@ class User extends Service
   }
 
   // Sends a "change password" e-mail to the user identified by its e-mail address.
-  public function requestPasswordReset($params)
+  public function requestPasswordReset($email)
   {
     // Check for a valid e-mail address
-    if (filter_var($params['ds_email'], FILTER_VALIDATE_EMAIL) === false)
+    if (filter_var($email, FILTER_VALIDATE_EMAIL) === false)
       throw new BadRequest("Forneça um e-mail válido.");
 
     // Get user data by its e-mail address. If no user is found, throws exception.
-    $user = $this->get(['ds_email' => $params['ds_email']]);
+    $user = $this->get(['ds_email' => $email]);
     if (empty($user)) throw new FailedValidation("E-mail inexistente.");
 
     // Creates a new authentication token.
@@ -390,7 +389,6 @@ class User extends Service
 
     return $data;
   }
-  
   /**
    * Check if there are any user-related fields in $data
    * @param   array $data The array to be searched

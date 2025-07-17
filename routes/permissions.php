@@ -3,6 +3,7 @@
 namespace Iam\Routes;
 
 use SplitPHP\WebService;
+use SplitPHP\Request;
 
 class Permissions extends WebService
 {
@@ -27,6 +28,24 @@ class Permissions extends WebService
       return $this->response
         ->withStatus(200)
         ->withData($data);
+    });
+
+    $this->addEndpoint('POST', '/v1/permission', function (Request $r) {
+      // Auth user login:
+      if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
+
+      // Validate user permissions:
+      $this->getService('iam/permission')->validatePermissions([
+        'IAM_CUSTOM_PERMISSION' => 'C'
+      ]);
+
+      $data = $r->getBody();
+
+      $result = $this->getService('iam/permission')->createExecPermission($data);
+
+      return $this->response
+        ->withStatus(201)
+        ->withData($result);
     });
   }
 }
