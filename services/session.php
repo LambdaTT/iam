@@ -30,6 +30,9 @@ use SplitPHP\Service;
 use SplitPHP\Utils;
 use SplitPHP\Request;
 use Exception;
+use SplitPHP\Exceptions\BadRequest;
+use SplitPHP\Exceptions\FailedValidation;
+use SplitPHP\Exceptions\Unauthorized;
 
 class Session extends Service
 {
@@ -64,7 +67,8 @@ class Session extends Service
   public function login($params)
   {
     // Checks credentials sent by the client.
-    if (filter_var($params['ds_email'], FILTER_VALIDATE_EMAIL) === false || empty($params['ds_password'])) throw new Exception("Forneça as credenciais corretamente.", BAD_REQUEST);
+    if (filter_var($params['ds_email'], FILTER_VALIDATE_EMAIL) === false || empty($params['ds_password']))
+      throw new BadRequest("Forneça as credenciais corretamente.");
 
     // Get user information based on sent credentials.
     $credentials = [
@@ -76,7 +80,7 @@ class Session extends Service
     $user = $this->getService('iam/user')->get($credentials);
 
     // Check if the credentials refers to a valid user
-    if (empty($user)) throw new Exception("Não foi possível fazer login com as credenciais fornecidas.", VALIDATION_FAILED);
+    if (empty($user)) throw new FailedValidation("Não foi possível fazer login com as credenciais fornecidas.");
 
     // Performs login, creating a session for the user identified.
     return $this->create($user);
@@ -89,11 +93,12 @@ class Session extends Service
     $credentials = unserialize(Utils::dataDecrypt($credentials, PUBLIC_KEY));
 
     // Checks if the application's secret key, only known by the SSO and the application itself is correct. 
-    if (empty($credentials) || $credentials['applicationSecret'] != PRIVATE_KEY) throw new Exception("Invalid credentials", NOT_AUTHORIZED);
+    if (empty($credentials) || $credentials['applicationSecret'] != PRIVATE_KEY)
+      throw new Unauthorized("Invalid credentials");
 
     // Get user data. If no user were found, throws exception.
-    $usr = $this->getService('iam/user')->get(['id_sso_userid' => $credentials->userID]);
-    if (empty($usr)) throw new Exception("Invalid user", NOT_AUTHORIZED);
+    $usr = $this->getService('iam/user')->get(['id_sso_userid' => $credentials['userID']]);
+    if (empty($usr)) throw new Unauthorized("Invalid user");
 
     // Performs login, creating a session for the user identified.
     return $this->create($usr, $credentials['ssoSessionKey']);
@@ -102,7 +107,7 @@ class Session extends Service
   public function loginByAuthToken($token)
   {
     $user = $this->getService('iam/user')->get(['ds_key' => Utils::dataDecrypt($token, PRIVATE_KEY)]);
-    if (empty($user)) throw new Exception("Não foi possível efetuar o login.", VALIDATION_FAILED);
+    if (empty($user)) throw new FailedValidation("Não foi possível efetuar o login.");
 
     $session = $this->create($user);
 
@@ -112,10 +117,10 @@ class Session extends Service
   }
 
   // Shut down an user session
-  public function logout($params = [])
+  public function logout(?string $token = null)
   {
     // Consumes autologin token:
-    if (!empty($params) && !empty($params['token'])) $this->getService('iam/authtoken')->consume($params['token']);
+    if (!empty($token)) $this->getService('iam/authtoken')->consume($token);
 
     // Identify session key sent by the client.
     $sessionKey = $this->getKey();
@@ -223,7 +228,7 @@ class Session extends Service
     $params = [];
     if (!empty($sessionKey)) $params['ds_key'] = $sessionKey;
 
-    if (Utils::validateData($validRules, $params) == false) throw new Exception("Invalid input.", 400);
+    if (Utils::validateData($validRules, $params) == false) throw new BadRequest("Invalid input.");
   }
 
   // Deletes user sessions from the database, based on parameters.

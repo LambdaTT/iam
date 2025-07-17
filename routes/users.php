@@ -28,13 +28,16 @@ namespace Iam\Routes;
 
 use SplitPHP\WebService;
 use Exception;
+use SplitPHP\Exceptions\BadRequest;
+use SplitPHP\Exceptions\NotFound;
+use SplitPHP\Request;
 
 class Users extends WebService
 {
   public function init(): void
   {
     // USER PROFILES ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/profiles/?userKey?', function ($params) {
+    $this->addEndpoint('GET', '/v1/profiles/?userKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -45,13 +48,15 @@ class Users extends WebService
         'IAM_ACCESSPROFILE_USER' => 'R'
       ]);
 
-      $result = $this->getService('iam/user')->userProfiles($params['userKey']);
+      $key = $r->getRoute()->params['userKey'];
+
+      $result = $this->getService('iam/user')->userProfiles($key);
 
       return $this->response->withData($result);
     });
 
     // USER ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/user/?userKey?', function ($params) {
+    $this->addEndpoint('GET', '/v1/user/?userKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -60,7 +65,12 @@ class Users extends WebService
         'IAM_USER' => 'R'
       ]);
 
-      $data = $this->getService('iam/user')->get(['ds_key' => $params['userKey'], 'do_hidden' => 'N']);
+      $params = [
+        'ds_key' => $r->getRoute()->params['userKey'],
+        'do_hidden' => 'N'
+      ];
+
+      $data = $this->getService('iam/user')->get($params);
       if (empty($data)) return $this->response->withStatus(404);
 
       unset($data->ds_password);
@@ -107,7 +117,7 @@ class Users extends WebService
 
       if (!empty($profiles))
         $newUser->profiles = $this->getService('iam/user')->updUserProfiles($newUser->id_iam_user, $profiles);
-      else throw new Exception("Adicione ao menos um Perfil ao usuário.", BAD_REQUEST);
+      else throw new BadRequest("Adicione ao menos um Perfil ao usuário.");
 
       return $this->response
         ->withStatus(201)
@@ -132,14 +142,14 @@ class Users extends WebService
 
       if (!empty($profiles))
         $newUser->profiles = $this->getService('iam/user')->updUserProfiles($newUser->id_iam_user, $profiles);
-      else throw new Exception("Adicione ao menos um Perfil ao usuário.", BAD_REQUEST);
+      else throw new BadRequest("Adicione ao menos um Perfil ao usuário.");
 
       return $this->response
         ->withStatus(201)
         ->withData($newUser);
     });
 
-    $this->addEndpoint('PUT', '/v1/user/?userKey?', function ($params) {
+    $this->addEndpoint('PUT', '/v1/user/?userKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate())
         return $this->response->withStatus(401);
@@ -151,26 +161,29 @@ class Users extends WebService
         'IAM_ACCESSPROFILE_USER' => 'CD'
       ]);
 
-      $userKey = $params['userKey'];
-      unset($params['userKey']);
+      $params = [
+        'ds_key' => $r->getRoute()->params['userKey'],
+      ];
 
-      $user = $this->getService('iam/user')->get(['ds_key' => $userKey]);
-      if (empty($user)) throw new Exception("Usuário inválido", BAD_REQUEST);
+      $data = $r->getBody();
 
-      $profiles = json_decode($params['selected_profiles'], true);
-      unset($params['selected_profiles']);
+      $user = $this->getService('iam/user')->get($params);
+      if (empty($user)) throw new NotFound("O usuário não foi encontrado.");
 
-      $params['do_hidden'] = 'N';
-      $rows = $this->getService('iam/user')->updUser(['ds_key' => $userKey], $params);
+      $profiles = json_decode($data['selected_profiles'], true);
+      unset($data['selected_profiles']);
+
+      $data['do_hidden'] = 'N';
+      $rows = $this->getService('iam/user')->updUser($params, $data);
       if ($rows < 1) return $this->response->withStatus(404);
 
       if (!empty($profiles)) $this->getService('iam/user')->updUserProfiles($user->id_iam_user, $profiles);
-      else throw new Exception("Adicione ao menos um Perfil ao usuário.", BAD_REQUEST);
+      else throw new BadRequest("Adicione ao menos um Perfil ao usuário.");
 
       return $this->response->withStatus(204);
     });
 
-    $this->addEndpoint('PUT', '/v2/user/?userKey?', function ($params) {
+    $this->addEndpoint('PUT', '/v2/user/?userKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate())
         return $this->response->withStatus(401);
@@ -182,34 +195,39 @@ class Users extends WebService
         'IAM_ACCESSPROFILE_USER' => 'CD'
       ]);
 
-      $userKey = $params['userKey'];
-      unset($params['userKey']);
+      $params = [
+        'ds_key' => $r->getRoute()->params['userKey'],
+      ];
+      $data = $r->getBody();
 
-      $user = $this->getService('iam/user')->get(['ds_key' => $userKey]);
-      if (empty($user)) throw new Exception("Usuário inválido", BAD_REQUEST);
+      $user = $this->getService('iam/user')->get($params);
+      if (empty($user)) throw new NotFound("O usuário não foi encontrado.");
 
-      $profiles = $params['selected_profiles'];
-      unset($params['selected_profiles']);
+      $profiles = $data['selected_profiles'];
+      unset($data['selected_profiles']);
 
-      $params['do_hidden'] = 'N';
-      $rows = $this->getService('iam/user')->updUser(['ds_key' => $userKey], $params);
+      $data['do_hidden'] = 'N';
+      $rows = $this->getService('iam/user')->updUser($params, $data);
       if ($rows < 1) return $this->response->withStatus(404);
 
       if (!empty($profiles)) $this->getService('iam/user')->updUserProfiles($user->id_iam_user, $profiles);
-      else throw new Exception("Adicione ao menos um Perfil ao usuário.", BAD_REQUEST);
+      else throw new BadRequest("Adicione ao menos um Perfil ao usuário.");
 
       return $this->response->withStatus(204);
     });
 
-    $this->addEndpoint('PUT', '/v1/change-pass/?authtoken?', function ($data) {
+    $this->addEndpoint('PUT', '/v1/change-pass/?authtoken?', function (Request $r) {
+      $tkn = $r->getRoute()->params['authtoken'];
+      $data = $r->getBody();
+
       // Auth user login:
-      if (!$this->getService('iam/authtoken')->authenticate($data['authtoken']))
+      if (!$this->getService('iam/authtoken')->authenticate($tkn))
         return $this->response->withStatus(401);
 
-      $user = $this->getService('iam/authtoken')->getTokenUser($data['authtoken']);
-      if (empty($user)) throw new Exception("Usuário inválido", BAD_REQUEST);
+      $user = $this->getService('iam/authtoken')->getTokenUser($tkn);
+      if (empty($user)) throw new NotFound("O usuário não foi encontrado.");
 
-      $this->getService('iam/authtoken')->consume($data['authtoken']);
+      $this->getService('iam/authtoken')->consume($tkn);
       $data = [
         'ds_password' => $data['ds_password']
       ];
@@ -220,7 +238,7 @@ class Users extends WebService
       return $this->response->withStatus(204);
     }, false);
 
-    $this->addEndpoint('DELETE', '/v1/user/?userKey?', function ($params) {
+    $this->addEndpoint('DELETE', '/v1/user/?userKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -229,7 +247,12 @@ class Users extends WebService
         'IAM_USER' => 'D'
       ]);
 
-      $result = $this->getService('iam/user')->remove(['ds_key' => $params['userKey'], 'do_hidden' => 'N']);
+      $params = [
+        'ds_key' => $r->getRoute()->params['userKey'],
+        'do_hidden' => 'N'
+      ];
+
+      $result = $this->getService('iam/user')->remove($params);
       if ($result < 1) return $this->response->withStatus(404);
 
       return $this->response->withStatus(204);

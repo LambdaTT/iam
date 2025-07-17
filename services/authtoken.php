@@ -33,7 +33,7 @@ class Authtoken extends Service
   private $purgePeriod;
   private $purgeObsolete;
 
-  public function init(): void
+  public function __construct()
   {
     $this->purgeObsolete = true; // If false, does not perform obsolete tokens purging.
     $this->purgePeriod = 180; // Number of days in which any obsolete (expired and consumed) tokens will be purged.
@@ -42,12 +42,12 @@ class Authtoken extends Service
   }
 
   // Create a new authtoken with the specified expiration time:
-  public function create(string $userKey, int $expiration = null)
+  public function create(string $userKey, ?int $expiration = null)
   {
     $tokenObj = (object) [
       "ds_hash" => Utils::dataEncrypt($userKey, PRIVATE_KEY)
     ];
-    
+
     // If no expiration time were provided, the token won't expire
     if (!is_null($expiration)) $tokenObj->dt_expires = date('Y-m-d H:i:s', ($expiration + time()));
 

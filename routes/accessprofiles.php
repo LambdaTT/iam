@@ -26,15 +26,17 @@
 
 namespace Iam\Routes;
 
+use SplitPHP\Request;
 use SplitPHP\WebService;
 use Exception;
+use SplitPHP\Exceptions\BadRequest;
 
 class Accessprofiles extends WebService
 {
-  public function init(): void
+  public function init()
   {
     // PROFILE ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/accessprofile/?profileKey?', function ($params) {
+    $this->addEndpoint('GET', '/v1/accessprofile/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
@@ -43,7 +45,9 @@ class Accessprofiles extends WebService
         'IAM_ACCESSPROFILE' => 'R'
       ]);
 
-      $data = $this->getService('iam/accessprofile')->get(['ds_key' => $params['profileKey']]);
+      $key = $r->getRoute()->params['profileKey'];
+
+      $data = $this->getService('iam/accessprofile')->get(['ds_key' => $key]);
       if (empty($data)) return $this->response->withStatus(404);
 
       return $this->response->withData($data);
@@ -60,119 +64,136 @@ class Accessprofiles extends WebService
 
       return $this->response->withData($this->getService('iam/accessprofile')->list($params));
     });
-    
-    $this->addEndpoint('POST', '/v1/accessprofile', function($data){
+
+    $this->addEndpoint('POST', '/v1/accessprofile', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE' => 'C'
       ]);
-  
+
+      $data = $r->getBody();
+
       return $this->response->withStatus(201)->withData($this->getService('iam/accessprofile')->create($data));
     });
 
-    $this->addEndpoint('PUT', '/v1/accessprofile/?profileKey?', function($params){
+    $this->addEndpoint('PUT', '/v1/accessprofile/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE' => 'U'
       ]);
-  
-      $profileKey = $params['profileKey'];
-      unset($params['profileKey']);
-  
-      $rows = $this->getService('iam/accessprofile')->updProfile(['ds_key' => $profileKey], $params);
+
+      $params = [
+        'ds_key' => $r->getRoute()->params['profileKey']
+      ];
+
+      $data = $r->getBody();
+
+      $rows = $this->getService('iam/accessprofile')->updProfile($params, $data);
       if ($rows < 1) return $this->response->withStatus(404);
-  
+
       return $this->response->withStatus(204);
     });
 
-    $this->addEndpoint('DELETE', '/v1/accessprofile/?profileKey?', function($params){
+    $this->addEndpoint('DELETE', '/v1/accessprofile/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE' => 'D'
       ]);
-  
-      $result = $this->getService('iam/accessprofile')->remove(['ds_key' => $params['profileKey']]);
+
+      $params = [
+        'ds_key' => $r->getRoute()->params['profileKey']
+      ];
+
+      $result = $this->getService('iam/accessprofile')->remove($params);
       if ($result < 1) return $this->response->withStatus(404);
-  
+
       return $this->response->withStatus(204);
     });
 
     // MODULE ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/module/?profileKey?', function($params){
+    $this->addEndpoint('GET', '/v1/module/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE_MODULE' => 'R',
         'IAM_ACCESSPROFILE' => 'R'
       ]);
-  
-      $profileKey = $params['profileKey'];
-      unset($params['profileKey']);
-  
-      return $this->response->withData($this->getService('iam/accessprofile')->profileModules($profileKey, $params));
+
+      $key = $r->getRoute()->params['profileKey'];
+      $params = $r->getBody();
+
+      $data = $this->getService('iam/accessprofile')->profileModules($key, $params);
+
+      return $this->response->withData($data);
     });
 
-    $this->addEndpoint('POST', '/v1/module/?profileKey?/?moduleKey?', function($params){
+    $this->addEndpoint('POST', '/v1/module/?profileKey?/?moduleKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE_MODULE' => 'C',
         'IAM_ACCESSPROFILE_PERMISSION' => 'C',
         'IAM_ACCESSPROFILE' => 'R'
       ]);
-  
-      $profile = $this->getService('iam/accessprofile')->get(['ds_key' => $params['profileKey']]);
-      $module = $this->getService('modcontrol/control')->get(['ds_key' => $params['moduleKey']]);
-  
-      if (empty($module) || empty($profile)) throw new Exception("Invalid params", 400);
-  
+
+      $prfKey = $r->getRoute()->params['profileKey'];
+      $modKey = $r->getRoute()->params['moduleKey'];
+
+      $profile = $this->getService('iam/accessprofile')->get(['ds_key' => $prfKey]);
+      $module = $this->getService('modcontrol/control')->get(['ds_key' => $modKey]);
+
+      if (empty($module) || empty($profile)) throw new BadRequest("Parâmetros Inválidos");
+
       $data = $this->getService('iam/accessprofile')->addModule($profile->id_iam_accessprofile, $module->id_apm_module);
       return $this->response->withStatus(201)->withData($data);
     });
 
-    $this->addEndpoint('DELETE', '/v1/module/?profileKey?/?moduleKey?', function($params){
+    $this->addEndpoint('DELETE', '/v1/module/?profileKey?/?moduleKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE_MODULE' => 'D',
         'IAM_ACCESSPROFILE' => 'R'
       ]);
-  
-      $profile = $this->getService('iam/accessprofile')->get(['ds_key' => $params['profileKey']]);
-      $module = $this->getService('modcontrol/control')->get(['ds_key' => $params['moduleKey']]);
-  
-      if (empty($module) || empty($profile)) throw new Exception("Invalid params", 400);
-  
+
+      $prfKey = $r->getRoute()->params['profileKey'];
+      $modKey = $r->getRoute()->params['moduleKey'];
+
+      $profile = $this->getService('iam/accessprofile')->get(['ds_key' => $prfKey]);
+      $module = $this->getService('modcontrol/control')->get(['ds_key' => $modKey]);
+
+      if (empty($module) || empty($profile)) throw new BadRequest("Parâmetros Inválidos");
+
       $affectedRows = $this->getService('iam/accessprofile')->removeModule([
         'id_iam_accessprofile' => $profile->id_iam_accessprofile,
         'id_apm_module' => $module->id_apm_module
       ]);
-  
+
       if ($affectedRows < 1) return $this->response->withStatus(404);
-  
+
       return $this->response->withStatus(204);
     });
 
     // PERMISSION ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/permission/?profileKey?', function($params){
+    $this->addEndpoint('GET', '/v1/permission/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE_PERMISSION' => 'R',
@@ -181,19 +202,19 @@ class Accessprofiles extends WebService
         'IAM_CUSTOM_PERMISSION' => 'R',
         'IAM_ACCESSPROFILE_CUSTOM_PERMISSION' => 'R'
       ]);
-  
-      $profileKey = $params['profileKey'];
-      unset($params['profileKey']);
-  
-      $data = $this->getService('iam/permission')->permissionsByModule($profileKey, $params);
-  
+
+      $key = $r->getRoute()->params['profileKey'];
+      $params = $r->getBody();
+
+      $data = $this->getService('iam/permission')->permissionsByModule($key, $params);
+
       return $this->response->withData($data);
     });
 
-    $this->addEndpoint('PUT', '/v1/permission/?profileKey?', function($data){
+    $this->addEndpoint('PUT', '/v1/permission/?profileKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_ACCESSPROFILE_PERMISSION' => 'U',
@@ -201,7 +222,10 @@ class Accessprofiles extends WebService
         'IAM_ACCESSPROFILE' => 'R',
         'IAM_ACCESSPROFILE_CUSTOM_PERMISSION' => 'CD'
       ]);
-  
+
+      $key = $r->getRoute()->params['profileKey'];
+      $data = $r->getBody();
+
       foreach ($data['entityPermissions'] as $perm) {
         $this->getService('iam/permission')->updPermission(['ds_key' => $perm['permission_key']], [
           'do_read' => $perm['do_read'],
@@ -210,29 +234,33 @@ class Accessprofiles extends WebService
           'do_delete' => $perm['do_delete']
         ]);
       }
-  
+
       foreach ($data['customPermissions'] as $cperm) {
         if ($cperm['do_execute'] == 'Y')
-          $this->getService('iam/permission')->relateCustomPermission($data['profileKey'], $cperm['permission_key']);
+          $this->getService('iam/permission')->relateCustomPermission($key, $cperm['permission_key']);
         elseif ($cperm['do_execute'] == 'N')
-          $this->getService('iam/permission')->customPermissionRemoveRelation($data['profileKey'], $cperm['permission_key']);
+          $this->getService('iam/permission')->customPermissionRemoveRelation($key, $cperm['permission_key']);
       }
-  
+
       return $this->response->withStatus(204);
     });
-    
-    $this->addEndpoint('POST', '/v1/permission', function($data){
+
+    $this->addEndpoint('POST', '/v1/permission', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
-  
+
       // Validate user permissions:
       $this->getService('iam/permission')->validatePermissions([
         'IAM_CUSTOM_PERMISSION' => 'C'
       ]);
-  
+
+      $data = $r->getBody();
+
       $result = $this->getService('iam/permission')->createExecPermission($data);
-  
-      return $this->response->withStatus(201)->withData($result);
+
+      return $this->response
+        ->withStatus(201)
+        ->withData($result);
     });
   }
 }

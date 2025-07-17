@@ -26,6 +26,7 @@
 
 namespace Iam\Routes;
 
+use SplitPHP\Request;
 use SplitPHP\WebService;
 
 class Auth extends WebService
@@ -37,21 +38,30 @@ class Auth extends WebService
     // SESSION ENDPOINTS:
     $this->addEndpoint('GET', '/v1/logged-user', function () {
       $user = $this->getService('iam/session')->getLoggedUser();
+
       if (empty($user)) return $this->response->withStatus(401);
+
       return $this->response->withData($user);
     }, true);
 
-    $this->addEndpoint('POST', '/v1/login-sso/?credentials?', function ($params) {
+    $this->addEndpoint('POST', '/v1/login-sso/?credentials?', function (Request $r) {
+      $credentials = $r->getRoute()->params['credentials'] ?? null;
+
+      $data = $this->getService('iam/session')->loginSSO($credentials);
+      $data->xsrfToken = $this->xsrfToken();
+
       return $this->response
         ->withStatus(201)
-        ->withData($this->getService('iam/session')->loginSSO($params['credentials']));
+        ->withData($data);
     });
 
-    $this->addEndpoint('POST', '/v1/login-token/?authtoken?', function ($params) {
-      if ($this->getService('iam/authtoken')->authenticate($params['authtoken']) == false)
+    $this->addEndpoint('POST', '/v1/login-token/?authtoken?', function (Request $r) {
+      $token = $r->getRoute()->params['authtoken'] ?? null;
+
+      if ($this->getService('iam/authtoken')->authenticate($token) == false)
         return $this->response->withStatus(401);
 
-      $data = $this->getService('iam/session')->loginByAuthToken($params['authtoken']);
+      $data = $this->getService('iam/session')->loginByAuthToken($token);
       $data->xsrfToken = $this->xsrfToken();
 
       return $this->response
@@ -59,8 +69,10 @@ class Auth extends WebService
         ->withData($data);
     });
 
-    $this->addEndpoint('POST', '/v1/login', function ($params) {
-      $data = $this->getService('iam/session')->login($params);
+    $this->addEndpoint('POST', '/v1/login', function (Request $r) {
+      $body = $r->getBody();
+
+      $data = $this->getService('iam/session')->login($body);
       $data->xsrfToken = $this->xsrfToken();
 
       return $this->response
@@ -68,26 +80,34 @@ class Auth extends WebService
         ->withData($data);
     });
 
-    $this->addEndpoint('DELETE', '/v1/logout', function ($params) {
+    $this->addEndpoint('DELETE', '/v1/logout', function (Request $r) {
+      $token = $r->getBody('token') ?? null;
+
       return $this->response
         ->withStatus(200)
-        ->withData($this->getService('iam/session')->logout($params));
+        ->withData($this->getService('iam/session')->logout($token));
     });
 
     // AUTH TOKEN ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/validate-token/?authtoken?', function ($params) {
-      if ($this->getService('iam/authtoken')->authenticate($params['authtoken']) == false)
+    $this->addEndpoint('GET', '/v1/validate-token/?authtoken?', function (Request $r) {
+      $tkn = $r->getRoute()->params['authtoken'];
+
+      if ($this->getService('iam/authtoken')->authenticate($tkn) == false)
         return $this->response->withStatus(401);
 
       return $this->response->withStatus(204);
     });
 
-    $this->addEndpoint('GET', '/v1/renew-token', function () {
+    $this->addEndpoint('POST', '/v1/renew-token', function () {
       $user = $this->getService('iam/session')->getLoggedUser();
+
       if (empty($user)) return $this->response->withStatus(401);
 
+      $tkn = $this->getService('iam/authtoken')->create($user->ds_key, 7 * 24 * 60 * 60); // Token valid for 7 days.
+
       return $this->response
-        ->withData($this->getService('iam/authtoken')->create($user->ds_key, 7 * 24 * 60 * 60)); // Token valid for 7 days.
+        ->withStatus(201)
+        ->withData($tkn);
     }, true);
   }
 }
