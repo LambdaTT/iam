@@ -171,7 +171,7 @@ class User extends Service
     // Validates input password:
     if (!empty($data['ds_password'])) {
       $this->validatePassword($data['ds_password']);
-      $data['ds_password'] = hash('sha256', $data['ds_password']);
+      $data['ds_password'] = password_hash($data['ds_password'], PASSWORD_DEFAULT);
     } else unset($data['ds_password']);
 
     // Removes forbidden fields from $data:
@@ -390,6 +390,7 @@ class User extends Service
 
     return $data;
   }
+  
   /**
    * Check if there are any user-related fields in $data
    * @param   array $data The array to be searched

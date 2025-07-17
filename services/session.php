@@ -73,14 +73,14 @@ class Session extends Service
     // Get user information based on sent credentials.
     $credentials = [
       "ds_email" => $params['ds_email'],
-      "ds_password" => hash('sha256', $params['ds_password']),
       "do_active" => 'Y'
     ];
 
     $user = $this->getService('iam/user')->get($credentials);
 
-    // Check if the credentials refers to a valid user
-    if (empty($user)) throw new FailedValidation("Não foi possível fazer login com as credenciais fornecidas.");
+    // Check if the credentials refers to a valid user and if the password matches.
+    if (empty($user) || !password_verify($params['ds_password'], $user->ds_password))
+      throw new FailedValidation("Não foi possível fazer login com as credenciais fornecidas.");
 
     // Performs login, creating a session for the user identified.
     return $this->create($user);
