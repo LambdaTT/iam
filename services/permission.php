@@ -43,7 +43,7 @@ class Permission extends Service
     foreach ($modules as $mod) {
       if ($mod->checked == 'Y') {
         $mod->permissions = $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-          ->filter('module_id')->equalsTo($mod->id_apm_module)
+          ->filter('module_id')->equalsTo($mod->id_mdc_module)
           ->and('profile_key')->equalsTo($profileKey)
           ->find('iam/permissionsbymodule');
 
@@ -78,7 +78,7 @@ class Permission extends Service
       'id_iam_accessprofile_permission',
       'ds_key',
       'id_iam_accessprofile_module',
-      'id_apm_module_entity'
+      'id_mdc_module_entity'
     ]);
 
     return $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
@@ -166,7 +166,7 @@ class Permission extends Service
     $processedPermissions = [];
     $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
       ->filter('id_iam_user')->equalsTo($user->id_iam_user)
-      ->fetch(function ($permission) use ($processedPermissions) {
+      ->fetch(function ($permission) use (&$processedPermissions) {
         if (array_key_exists($permission->ds_entity_name, $processedPermissions)) {
           foreach ($processedPermissions[$permission->ds_entity_name] as $lvl => $val)
             if ($val != 'Y')
@@ -187,19 +187,19 @@ class Permission extends Service
         $failure = true;
         break;
       }
-      if (strpos($strReq, 'C') !== false && $processedPermissions[$ent]->do_create != 'Y') {
+      if (str_contains($strReq, 'C') && $processedPermissions[$ent]->do_create != 'Y') {
         $failure = true;
         break;
       }
-      if (strpos($strReq, 'R') !== false && $processedPermissions[$ent]->do_read != 'Y') {
+      if (str_contains($strReq, 'R') && $processedPermissions[$ent]->do_read != 'Y') {
         $failure = true;
         break;
       }
-      if (strpos($strReq, 'U') !== false && $processedPermissions[$ent]->do_update != 'Y') {
+      if (str_contains($strReq, 'U') && $processedPermissions[$ent]->do_update != 'Y') {
         $failure = true;
         break;
       }
-      if (strpos($strReq, 'D') !== false && $processedPermissions[$ent]->do_delete != 'Y') {
+      if (str_contains($strReq, 'D') && $processedPermissions[$ent]->do_delete != 'Y') {
         $failure = true;
         break;
       }

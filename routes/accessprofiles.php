@@ -156,7 +156,7 @@ class Accessprofiles extends WebService
 
       if (empty($module) || empty($profile)) throw new BadRequest("Parâmetros Inválidos");
 
-      $data = $this->getService('iam/accessprofile')->addModule($profile->id_iam_accessprofile, $module->id_apm_module);
+      $data = $this->getService('iam/accessprofile')->addModule($profile->id_iam_accessprofile, $module->id_mdc_module);
       return $this->response->withStatus(201)->withData($data);
     });
 
@@ -180,7 +180,7 @@ class Accessprofiles extends WebService
 
       $affectedRows = $this->getService('iam/accessprofile')->removeModule([
         'id_iam_accessprofile' => $profile->id_iam_accessprofile,
-        'id_apm_module' => $module->id_apm_module
+        'id_mdc_module' => $module->id_mdc_module
       ]);
 
       if ($affectedRows < 1) return $this->response->withStatus(404);

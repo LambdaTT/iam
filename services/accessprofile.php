@@ -96,6 +96,7 @@ class Accessprofile extends Service
       'id_iam_user_created',
       'id_iam_user_updated',
       'dt_created',
+      'do_active',
       'dt_updated'
     ]);
 
@@ -132,21 +133,21 @@ class Accessprofile extends Service
     // Associates a module to a profile
     $association = $this->getDao('IAM_ACCESSPROFILE_MODULE')
       ->insert([
-        'id_apm_module' => $moduleId,
+        'id_mdc_module' => $moduleId,
         'id_iam_accessprofile' => $profileId
       ]);
 
     // Generates permissions to each entity within the module for the profile
     $entities = $this->getDao('MDC_MODULE_ENTITY')
-      ->filter('id_apm_module')->equalsTo($moduleId)
-      ->find("SELECT id_apm_module_entity FROM `MDC_MODULE_ENTITY` WHERE id_apm_module = ?id_apm_module?");
+      ->filter('id_mdc_module')->equalsTo($moduleId)
+      ->find("SELECT id_mdc_module_entity FROM `MDC_MODULE_ENTITY` WHERE id_mdc_module = ?id_mdc_module?");
 
     foreach ($entities as $ent) {
       $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
         ->insert([
           'ds_key' => uniqid(),
           'id_iam_accessprofile_module' => $association->id_iam_accessprofile_module,
-          'id_apm_module_entity' => $ent->id_apm_module_entity
+          'id_mdc_module_entity' => $ent->id_mdc_module_entity
         ]);
     }
 
