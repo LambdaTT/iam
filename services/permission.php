@@ -252,7 +252,7 @@ class Permission extends Service
     if ($user->do_is_superadmin == 'Y') return true;
 
     // List all modules that the logged user has access to:
-    $userAllowedModules = $this->getDao('APM_MODULE')
+    $userAllowedModules = $this->getDao('MDC_MODULE')
       ->filter('id_iam_user')->equalsTo($user->id_iam_user)
       ->find('iam/usermodules');
 

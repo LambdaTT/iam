@@ -10,7 +10,7 @@ SELECT
   prm.do_delete, 
   NULL as do_execute 
   FROM `IAM_ACCESSPROFILE_PERMISSION` prm 
-  LEFT JOIN `APM_MODULE_ENTITY` ent ON (ent.id_mdc_module_entity = prm.id_mdc_module_entity) 
+  LEFT JOIN `MDC_MODULE_ENTITY` ent ON (ent.id_mdc_module_entity = prm.id_mdc_module_entity) 
   INNER JOIN `IAM_ACCESSPROFILE_MODULE` upm ON (upm.id_iam_accessprofile_module = prm.id_iam_accessprofile_module) 
   RIGHT JOIN `IAM_ACCESSPROFILE` prf ON (prf.id_iam_accessprofile = upm.id_iam_accessprofile) 
   WHERE upm.id_mdc_module = ?module_id? 
