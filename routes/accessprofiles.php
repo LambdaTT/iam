@@ -160,6 +160,29 @@ class Accessprofiles extends WebService
       return $this->response->withStatus(201)->withData($data);
     });
 
+    $this->addEndpoint('PUT', '/v1/module/?profileKey?', function(Request $request){
+       // Auth user login:
+      if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
+
+      // Validate user permissions:
+      $this->getService('iam/permission')->validatePermissions([
+        'IAM_ACCESSPROFILE_MODULE' => 'CD',
+        'IAM_ACCESSPROFILE_PERMISSION' => 'C',
+        'IAM_ACCESSPROFILE' => 'R'
+      ]);
+
+      $params = [
+        'ds_key' => $request->getRoute()->params['profileKey']
+      ];
+      $modules = $request->getBody('modules');
+
+      if (empty($modules)) throw new BadRequest("A lista de módulos não pode ser vazia.");
+
+      $this->getService('iam/accessprofile')->updProfileModules($params, $modules);
+
+      return $this->response->withStatus(204);
+    });
+
     $this->addEndpoint('DELETE', '/v1/module/?profileKey?/?moduleKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);

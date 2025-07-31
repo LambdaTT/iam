@@ -27,6 +27,7 @@ namespace Iam\Services;
 
 use SplitPHP\Service;
 use Exception;
+use SplitPHP\Exceptions\NotFound;
 
 class Accessprofile extends Service
 {
@@ -127,9 +128,38 @@ class Accessprofile extends Service
       ->find('iam/profilemodules');
   }
 
+  /**
+   * Update the modules associated with a profile.
+   * @param array $prfParams Parameters to find the profile.
+   * @param array $modules Array of modules to update, each with 'id_mdc_module' and 'checked' keys.
+   * @throws NotFound If the profile is not found
+   */
+  public function updProfileModules($prfParams, $modules)
+  {
+    $prf = $this->get($prfParams);
+    if (empty($prf)) throw new NotFound("O perfil não foi encontrado.");
+
+    foreach ($modules as $mod) {
+      $mod = (array) $mod;
+      if ($mod['checked'] == 'Y')
+        $this->addModule($prf->id_iam_accessprofile, $mod['id_mdc_module']);
+      else
+        $this->removeModule([
+          'id_iam_accessprofile' => $prf->id_iam_accessprofile,
+          'id_mdc_module' => $mod['id_mdc_module']
+        ]);
+    }
+  }
+
   // Associate a module to a profile
   public function addModule($profileId, $moduleId)
   {
+    $conflict = $this->getDao('IAM_ACCESSPROFILE_MODULE')
+      ->filter('id_mdc_module')->equalsTo($moduleId)
+      ->filter('id_iam_accessprofile')->equalsTo($profileId)
+      ->first("SELECT id_iam_accessprofile_module FROM `IAM_ACCESSPROFILE_MODULE` WHERE id_mdc_module = ?id_mdc_module? AND id_iam_accessprofile = ?id_iam_accessprofile?");
+    if (!empty($conflict)) return;
+
     // Associates a module to a profile
     $association = $this->getDao('IAM_ACCESSPROFILE_MODULE')
       ->insert([
