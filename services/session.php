@@ -72,7 +72,9 @@ class Session extends Service
 
     // Get user information based on sent credentials.
     $credentials = [
-      "ds_email" => $params['ds_email'],
+      "ds_email" => '$startFilterGroup|'.$params['ds_email'],
+      "ds_phone1" => '$or|'.$params['ds_phone1'],
+      "ds_phone2l" => '$endFilterGroup$or|'.$params['ds_phone2'],
       "do_active" => 'Y'
     ];
 
