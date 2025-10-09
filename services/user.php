@@ -121,14 +121,14 @@ class User extends Service
   }
 
   // Creates a new user register.
-  public function create($data)
+  public function create(&$data)
   {
     // Validates new user email and password:
     $this->validateEmail($data);
     $this->validatePassword($data['ds_password']);
 
     // Removes forbidden fields from $data:
-    $data = $this->getService('utils/misc')->dataBlacklist($data, [
+    $usrdata = $this->getService('utils/misc')->dataBlacklist($data, [
       'id_iam_user',
       'ds_key',
       'dt_last_access',
@@ -139,43 +139,30 @@ class User extends Service
     ]);
 
     // Treat Avatar img file upload:
-    if (!empty($data['user_avatar'])) {
+    if (!empty($usrdata['user_avatar'])) {
       $avatarFile = $this->getService('filemanager/file')
-        ->add($data['user_avatar']['name'], $data['user_avatar']['path'], 'Y');
+        ->add($usrdata['user_avatar']['name'], $usrdata['user_avatar']['path'], 'Y');
       if (!empty($avatarFile))
-        $data['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
+        $usrdata['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
 
-    $this->filterUserData($data);
+    $this->filterUserData($usrdata);
 
     // Set default values:
-    $data['ds_key'] = 'usr-' . uniqid();
+    $usrdata['ds_key'] = 'usr-' . uniqid();
     $loggedUser = $this->getService('iam/session')->getLoggedUser();
-    $data['id_iam_user_created'] = empty($loggedUser) ? null : $loggedUser->id_iam_user;
-    $data['ds_password'] = password_hash($data['ds_password'], PASSWORD_DEFAULT);
+    $usrdata['id_iam_user_created'] = empty($loggedUser) ? null : $loggedUser->id_iam_user;
+    $usrdata['ds_password'] = password_hash($usrdata['ds_password'], PASSWORD_DEFAULT);
 
-    return $this->getDao('IAM_USER')->insert($data);
+    $this->removeUserData($data);
+    return $this->getDao('IAM_USER')->insert($usrdata);
   }
 
   // Updates an user, identified by parameters, with the passed data.
-  public function updUser($params, $data)
+  public function updUser($params, &$data)
   {
-    // Retrieves user's data.
-    $usr = $this->get($params);
-
-    // Validates input email:
-    if (!empty($data['ds_email'])) {
-      $this->validateEmail($data, $usr->id_iam_user);
-    }
-
-    // Validates input password:
-    if (!empty($data['ds_password'])) {
-      $this->validatePassword($data['ds_password']);
-      $data['ds_password'] = password_hash($data['ds_password'], PASSWORD_DEFAULT);
-    } else unset($data['ds_password']);
-
     // Removes forbidden fields from $data:
-    $data = $this->getService('utils/misc')->dataBlacklist($data, [
+    $usrdata = $this->getService('utils/misc')->dataBlacklist($data, [
       'id_iam_user',
       'ds_key',
       'id_iam_user_created',
@@ -184,23 +171,36 @@ class User extends Service
       'dt_updated'
     ]);
 
-    $data = $this->filterUserData($data);
+    // Retrieves user's data.
+    $usr = $this->get($params);
+
+    // Validates input email:
+    if (!empty($usrdata['ds_email'])) 
+      $this->validateEmail($usrdata, $usr->id_iam_user);
+
+    // Validates input password:
+    if (!empty($usrdata['ds_password'])) {
+      $this->validatePassword($usrdata['ds_password']);
+      $usrdata['ds_password'] = password_hash($usrdata['ds_password'], PASSWORD_DEFAULT);
+    } else unset($usrdata['ds_password']);
+
+    $this->filterUserData($usrdata);
 
     // Sets default values:
     $loggedUsr = $this->getService('iam/session')->getLoggedUser();
-    $data['id_iam_user_updated'] = !empty($loggedUsr) ? $loggedUsr->id_iam_user : $usr->id_iam_user;
-    $data['dt_updated'] = date('Y-m-d H:i:s');
+    $usrdata['id_iam_user_updated'] = !empty($loggedUsr) ? $loggedUsr->id_iam_user : $usr->id_iam_user;
+    $usrdata['dt_updated'] = date('Y-m-d H:i:s');
 
     // Treats Avatar img file upload:
-    if (!empty($data['erase_avatar'])) {
+    if (!empty($usrdata['erase_avatar'])) {
       if (!empty($usr->id_fmn_file_avatar)) {
         $avatarFile = $this->getService('filemanager/file')->get(['id_fmn_file' => $usr->id_fmn_file_avatar]);
         if (!empty($avatarFile)) $this->getService('filemanager/file')->remove(['id_fmn_file' => $usr->id_fmn_file_avatar]);
 
-        $data['id_fmn_file_avatar'] = null;
+        $usrdata['id_fmn_file_avatar'] = null;
       }
 
-      unset($data['erase_avatar']);
+      unset($usrdata['erase_avatar']);
     } elseif (!empty($_FILES['user_avatar'])) {
       if (!empty($usr->id_fmn_file_avatar)) {
         $avatarFile = $this->getService('filemanager/file')->get(['id_fmn_file' => $usr->id_fmn_file_avatar]);
@@ -211,12 +211,14 @@ class User extends Service
       $avatarFile = $this->getService('filemanager/file')
         ->add($_FILES['user_avatar']['name'], $_FILES['user_avatar']['tmp_name'], 'Y');
       if (!empty($avatarFile))
-        $data['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
+        $usrdata['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
 
+    $this->removeUserData($data);
+    
     return $this->getDao('IAM_USER')
       ->filter('id_iam_user')->equalsTo($usr->id_iam_user)
-      ->update($data);
+      ->update($usrdata);
   }
 
   // Removes an user, identified by parameters, from the database.
