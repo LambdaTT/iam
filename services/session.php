@@ -72,9 +72,9 @@ class Session extends Service
 
     // Get user information based on sent credentials.
     $credentials = [
-      "ds_email" => '$startFilterGroup|'.$params['ds_email'],
-      "ds_phone1" => '$or|'.$params['ds_phone1'],
-      "ds_phone2" => '$endFilterGroup$or|'.$params['ds_phone2'],
+      "ds_email" => '$startFilterGroup|' . $params['ds_email'],
+      "ds_phone1" => '$or|' . $params['ds_phone1'],
+      "ds_phone2" => '$endFilterGroup$or|' . $params['ds_phone2'],
       "do_active" => 'Y'
     ];
 
@@ -189,8 +189,9 @@ class Session extends Service
         "ds_ip" => Request::getUserIP()
       ]);
 
+    $data = ['dt_last_access' => date('Y-m-d H:i:s')];
     // Register login: 
-    $this->getService('iam/user')->updUser(["id_iam_user" => $user->id_iam_user], ['dt_last_access' => date('Y-m-d H:i:s')]);
+    $this->getService('iam/user')->updUser(["id_iam_user" => $user->id_iam_user], $data);
     return $session;
   }
 
