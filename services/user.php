@@ -175,7 +175,7 @@ class User extends Service
     $usr = $this->get($params);
 
     // Validates input email:
-    if (!empty($usrdata['ds_email'])) 
+    if (!empty($usrdata['ds_email']))
       $this->validateEmail($usrdata, $usr->id_iam_user);
 
     // Validates input password:
@@ -215,7 +215,7 @@ class User extends Service
     }
 
     $this->removeUserData($data);
-    
+
     return $this->getDao('IAM_USER')
       ->filter('id_iam_user')->equalsTo($usr->id_iam_user)
       ->update($usrdata);
@@ -385,9 +385,14 @@ class User extends Service
     require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
     $tbInfo = Dbmetadata::tbInfo('IAM_USER');
 
-    $data = $this->getService('utils/misc')->dataBlackList($data, array_map(function ($c) {
-      return $c['Field'];
-    }, $tbInfo['columns']));
+    $filter = [
+      ...array_map(function ($c) {
+        return $c['Field'];
+      }, $tbInfo['columns']),
+      'avatar'
+    ];
+
+    $data = $this->getService('utils/misc')->dataBlackList($data, $filter);
 
     return $data;
   }
