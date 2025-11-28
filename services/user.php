@@ -139,9 +139,9 @@ class User extends Service
     ]);
 
     // Treat Avatar img file upload:
-    if (!empty($usrdata['user_avatar'])) {
+    if (!empty($usrdata['avatar'])) {
       $avatarFile = $this->getService('filemanager/file')
-        ->add($usrdata['user_avatar']['name'], $usrdata['user_avatar']['path'], 'Y');
+        ->add($usrdata['avatar']['name'], $usrdata['avatar']['path'], 'Y');
       if (!empty($avatarFile))
         $usrdata['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
