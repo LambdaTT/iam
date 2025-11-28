@@ -189,9 +189,10 @@ class Session extends Service
         "ds_ip" => Request::getUserIP()
       ]);
 
-    $data = ['dt_last_access' => date('Y-m-d H:i:s')];
     // Register login: 
-    $this->getService('iam/user')->updUser(["id_iam_user" => $user->id_iam_user], $data);
+    $params = ["id_iam_user" => $user->id_iam_user];
+    $data = ['dt_last_access' => date('Y-m-d H:i:s')];
+    $this->getService('iam/user')->updUser($params, $data);
     return $session;
   }
 
