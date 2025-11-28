@@ -139,9 +139,9 @@ class User extends Service
     ]);
 
     // Treat Avatar img file upload:
-    if (!empty($usrdata['avatar'])) {
+    if (!empty($_FILES['avatar'])) {
       $avatarFile = $this->getService('filemanager/file')
-        ->add($usrdata['avatar']['name'], $usrdata['avatar']['path'], 'Y');
+        ->add($_FILES['avatar']['name'], $_FILES['avatar']['tmp_name'], 'Y');
       if (!empty($avatarFile))
         $usrdata['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
@@ -201,7 +201,7 @@ class User extends Service
       }
 
       unset($usrdata['erase_avatar']);
-    } elseif (!empty($_FILES['user_avatar'])) {
+    } elseif (!empty($_FILES['avatar'])) {
       if (!empty($usr->id_fmn_file_avatar)) {
         $avatarFile = $this->getService('filemanager/file')->get(['id_fmn_file' => $usr->id_fmn_file_avatar]);
         if (!empty($avatarFile)) $this->getService('filemanager/file')->remove(['id_fmn_file' => $usr->id_fmn_file_avatar]);
@@ -209,7 +209,7 @@ class User extends Service
       }
 
       $avatarFile = $this->getService('filemanager/file')
-        ->add($_FILES['user_avatar']['name'], $_FILES['user_avatar']['tmp_name'], 'Y');
+        ->add($_FILES['avatar']['name'], $_FILES['avatar']['tmp_name'], 'Y');
       if (!empty($avatarFile))
         $usrdata['id_fmn_file_avatar'] = $avatarFile->id_fmn_file;
     }
