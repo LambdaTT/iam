@@ -304,6 +304,8 @@ class User extends Service
    */
   private function validateEmail($data, $userId = null)
   {
+    if (empty($data['ds_email'])) return;
+
     // Check if the e-mail contains the proper string pattern.
     if (filter_var($data['ds_email'], FILTER_VALIDATE_EMAIL) === false)
       throw new BadRequest("Forneça um e-mail válido.");
@@ -335,9 +337,11 @@ class User extends Service
    */
   private function validatePassword(?string $password = null)
   {
+    if (empty($password)) return;
+
     $failure = false;
 
-    if (empty($password) || strlen($password) < 3) {
+    if (strlen($password) < 3) {
       $failure = true;
     }
 

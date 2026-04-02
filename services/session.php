@@ -36,8 +36,6 @@ use SplitPHP\Exceptions\Unauthorized;
 
 class Session extends Service
 {
-  private const SESSION_TIMEOUT = 1800; // 30 minutes
-
   // Performs the user authentication:
   public function authenticate($update = true)
   {
@@ -67,14 +65,15 @@ class Session extends Service
   public function login($params)
   {
     // Checks credentials sent by the client.
-    if (filter_var($params['ds_email'], FILTER_VALIDATE_EMAIL) === false || empty($params['ds_password']))
+    if (empty($params['ds_password']) || empty($params['username']))
       throw new BadRequest("Forneça as credenciais corretamente.");
 
     // Get user information based on sent credentials.
     $credentials = [
-      "ds_email" => '$startFilterGroup|' . $params['ds_email'],
+      "ds_email" => '$startFilterGroup|' . $params['username'],
       "ds_phone1" => '$or|' . $params['ds_phone1'],
-      "ds_phone2" => '$endFilterGroup$or|' . $params['ds_phone2'],
+      "ds_phone2" => '$or|' . $params['ds_phone2'],
+      "ds_username" => '$endFilterGroup$or|' . $params['username'],
       "do_active" => 'Y'
     ];
 
@@ -82,7 +81,7 @@ class Session extends Service
 
     // Check if the credentials refers to a valid user and if the password matches.
     if (empty($user) || !password_verify($params['ds_password'], $user->ds_password))
-      throw new FailedValidation("Não foi possível fazer login com as credenciais fornecidas.");
+      throw new Unauthorized("Não foi possível fazer login com as credenciais fornecidas.");
 
     // Performs login, creating a session for the user identified.
     return $this->create($user);
@@ -265,9 +264,11 @@ class Session extends Service
 
     // Get logged user data:
     $user = $this->getService('iam/user')->get(['id_iam_user' => $session->id_iam_user]);
-    if ($user->do_session_expires != 'Y') return false;
+    if ($user->nr_session_timeout == null) return false;
+
+    $sessionTimeout = $user->nr_session_timeout;
 
     // Check if session is expired:
-    return (!empty($session->dt_updated) && (time() - strtotime($session->dt_updated) > self::SESSION_TIMEOUT)) || (empty($session->dt_updated) && (time() - strtotime($session->dt_created) > self::SESSION_TIMEOUT));
+    return (!empty($session->dt_updated) && (time() - strtotime($session->dt_updated) > $sessionTimeout)) || (empty($session->dt_updated) && (time() - strtotime($session->dt_created) > $sessionTimeout));
   }
 }

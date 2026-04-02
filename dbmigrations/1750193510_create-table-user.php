@@ -27,7 +27,7 @@ class CreateTableUser extends Migration
       ->string('ds_phone2', 20)->nullable()->setDefaultValue(null)
       ->string('ds_company', 100)->nullable()->setDefaultValue(null)
       ->datetime('dt_last_access')->nullable()->setDefaultValue(null)
-      ->string('do_session_expires', 1)->setDefaultValue('Y')
+      ->int("nr_session_timeout")->nullable()->setDefaultValue(1800)
       ->string('do_is_superadmin', 1)->setDefaultValue('N')
       ->string('do_hidden', 1)->setDefaultValue('N')
       ->Index('KEY', DbVocab::IDX_UNIQUE)->onColumn('ds_key')
