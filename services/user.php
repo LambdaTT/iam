@@ -33,6 +33,7 @@ use SplitPHP\Database\Dbmetadata;
 use SplitPHP\Exceptions\BadRequest;
 use SplitPHP\Exceptions\Conflict;
 use SplitPHP\Exceptions\FailedValidation;
+use SplitPHP\Exceptions\NotFound;
 
 class User extends Service
 {
@@ -294,6 +295,24 @@ class User extends Service
       ->send($content, $user->ds_email, $subject);
 
     return $token;
+  }
+
+  public function addProfileByTag($tag, $userId)
+  {
+    $prf = $this->getService('iam/accessprofile')->get(['ds_tag' => $tag]);
+    if (empty($prf)) throw new NotFound("O perfil não foi encontrado.");
+
+    $association = $this->getDao('IAM_ACCESSPROFILE_USER')
+      ->filter('id_iam_user')->equalsTo($userId)
+      ->filter('id_iam_accessprofile')->equalsTo($prf->id_iam_accessprofile)
+      ->first("SELECT id_iam_accessprofile_user FROM `IAM_ACCESSPROFILE_USER` WHERE id_iam_user = ?id_iam_user? AND id_iam_accessprofile = ?id_iam_accessprofile?");
+    if (!empty($association)) return $association;
+
+    return $this->getDao('IAM_ACCESSPROFILE_USER')
+      ->insert([
+        'id_iam_user' => $userId,
+        'id_iam_accessprofile' => $prf->id_iam_accessprofile
+      ]);
   }
 
   /**

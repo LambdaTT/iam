@@ -193,4 +193,78 @@ class Accessprofile extends Service
       ->bindParams($params)
       ->delete();
   }
+
+  /**
+   * Update the CRUD permission flags for a specific entity within a profile.
+   * Looks up the existing IAM_ACCESSPROFILE_PERMISSION record for the given
+   * profile + entity and sets do_read/do_create/do_update/do_delete according
+   * to the $operations string (e.g. "RU" → read & update = Y, create & delete = N).
+   *
+   * @param int    $profileId   id_iam_accessprofile
+   * @param int    $entityId    id_mdc_module_entity
+   * @param string $operations  Any combination of C, R, U, D
+   * @return mixed The updated record, or null if the permission row was not found.
+   */
+  public function applyEntityPermissions(int $profileId, int $entityId, string $operations)
+  {
+    // Find the association record for this profile+entity:
+    $perm = $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
+      ->filter('profile_id')->equalsTo($profileId)
+      ->and('entity_id')->equalsTo($entityId)
+      ->first(
+        "SELECT perm.id_iam_accessprofile_permission
+           FROM `IAM_ACCESSPROFILE_PERMISSION` perm
+           JOIN `IAM_ACCESSPROFILE_MODULE` apm ON apm.id_iam_accessprofile_module = perm.id_iam_accessprofile_module
+           WHERE apm.id_iam_accessprofile = ?profile_id?
+             AND perm.id_mdc_module_entity = ?entity_id?"
+      );
+
+    if (empty($perm)) return null;
+
+    $flags = [
+      'do_read'   => str_contains(strtoupper($operations), 'R') ? 'Y' : 'N',
+      'do_create' => str_contains(strtoupper($operations), 'C') ? 'Y' : 'N',
+      'do_update' => str_contains(strtoupper($operations), 'U') ? 'Y' : 'N',
+      'do_delete' => str_contains(strtoupper($operations), 'D') ? 'Y' : 'N',
+    ];
+
+    return $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
+      ->filter('id_iam_accessprofile_permission')->equalsTo($perm->id_iam_accessprofile_permission)
+      ->update($flags);
+  }
+
+  public function addProfileToUser($prfParams, $usrParams)
+  {
+    $prf = $this->get($prfParams);
+    if (empty($prf)) throw new NotFound("O perfil não foi encontrado.");
+
+    $usr = $this->getService('iam/user')->get($usrParams);
+    if (empty($usr)) throw new NotFound("O usuário não foi encontrado.");
+
+    $association = $this->getDao('IAM_ACCESSPROFILE_USER')
+      ->filter('id_iam_user')->equalsTo($usr->id_iam_user)
+      ->filter('id_iam_accessprofile')->equalsTo($prf->id_iam_accessprofile)
+      ->first("SELECT id_iam_accessprofile_user FROM `IAM_ACCESSPROFILE_USER` WHERE id_iam_user = ?id_iam_user? AND id_iam_accessprofile = ?id_iam_accessprofile?");
+    if (!empty($association)) return $association;
+
+    return $this->getDao('IAM_ACCESSPROFILE_USER')
+      ->insert([
+        'id_iam_user' => $usr->id_iam_user,
+        'id_iam_accessprofile' => $prf->id_iam_accessprofile
+      ]);
+  }
+
+  public function removeProfileFromUser($prfParams, $usrParams)
+  {
+    $prf = $this->get($prfParams);
+    if (empty($prf)) throw new NotFound("O perfil não foi encontrado.");
+
+    $usr = $this->getService('iam/user')->get($usrParams);
+    if (empty($usr)) throw new NotFound("O usuário não foi encontrado.");
+
+    return $this->getDao('IAM_USER_ACCESSPROFILE')
+      ->filter('id_iam_user')->equalsTo($usr->id_iam_user)
+      ->filter('id_iam_accessprofile')->equalsTo($prf->id_iam_accessprofile)
+      ->delete();
+  }
 }
