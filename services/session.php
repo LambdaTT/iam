@@ -175,9 +175,11 @@ class Session extends Service
   private function create($user, $ssoSessionKey = null)
   {
     // Remove all previous user sessions:
-    $this->remove([
-      "id_iam_user" => $user->id_iam_user
-    ]);
+    if ($user->do_multi_session != 'Y') {
+      $this->remove([
+        "id_iam_user" => $user->id_iam_user
+      ]);
+    }
 
     // Create new session:
     $session = $this->getDao('IAM_SESSION')
