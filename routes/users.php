@@ -230,12 +230,6 @@ class Users extends WebService
       return $this->response->withStatus(204);
     }, false);
 
-    $this->addEndpoint('GET', '/redirect/reset-password/?token?', function ($params) {
-      $url = "https://admin-" . TENANT_KEY . ".sindiapp.app.br/reset-password/{$params['token']}";
-      header("Location: {$url}");
-      die;
-    }, false);
-
     // MY ACCOUNT ENDPOINTS:
     $this->addEndpoint('GET', '/v1/my-account', function () {
       // Auth user login:
