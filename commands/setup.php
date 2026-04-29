@@ -52,6 +52,17 @@ class Setup extends Cli
       }
 
       // ------------------------------------------------------------------ //
+      // 2.5 Process Teams                                                    //
+      // ------------------------------------------------------------------ //
+      if (!empty($settings['teams'])) {
+        Utils::printLn("\033[36m>> 🛡️  Processing Teams...\033[0m");
+        foreach ($settings['teams'] as $teamData) {
+          $this->processTeam($teamData);
+        }
+        Utils::printLn();
+      }
+
+      // ------------------------------------------------------------------ //
       // 3. Process Access Profiles                                           //
       // ------------------------------------------------------------------ //
       if (!empty($settings['accessprofiles'])) {
@@ -168,6 +179,44 @@ class Setup extends Cli
   }
 
   /**
+   * Upsert a user team.
+   */
+  private function processTeam(array $teamData): void
+  {
+    $tag   = $teamData['tag']   ?? null;
+    $name  = $teamData['name']  ?? ($tag ?? 'Unnamed Team');
+
+    Utils::printLn("   \033[36m↳ Team '\033[34m{$name}\033[36m'...\033[0m");
+
+    $team = null;
+    if ($tag) {
+      $team = $this->getDao('IAM_USERTEAM')
+        ->filter('ds_tag')->equalsTo($tag)
+        ->first("SELECT * FROM `IAM_USERTEAM` WHERE ds_tag = ?ds_tag?");
+    }
+
+    if (!$team) {
+      $team = $this->getDao('IAM_USERTEAM')->insert([
+        'ds_name'        => $name,
+        'ds_tag'         => $tag,
+        'tx_description' => $teamData['description'] ?? null,
+      ]);
+      Utils::printLn("     \033[92m✔ Created team.\033[0m");
+    } else {
+      $updData = [];
+      if (!empty($teamData['description'])) $updData['tx_description'] = $teamData['description'];
+      if (!empty($teamData['name']) && $team->ds_name !== $teamData['name']) $updData['ds_name'] = $teamData['name'];
+      
+      if (!empty($updData)) {
+        $this->getDao('IAM_USERTEAM')
+          ->filter('id_iam_userteam')->equalsTo($team->id_iam_userteam)
+          ->update($updData);
+      }
+      Utils::printLn("     \033[93m↺ Team already exists, updating.\033[0m");
+    }
+  }
+
+  /**
    * Upsert an access profile and apply all its permissions (regular + custom).
    */
   private function processAccessProfile(array $profileData, array $entityMap): void
@@ -227,34 +276,52 @@ class Setup extends Cli
       $linkedModules    = [];
       $configuredEntityIds = []; // track which entities are explicitly configured
 
-      foreach ($profileData['permissions']['regular'] as $permEntry) {
-        foreach ($permEntry as $entityName => $operations) {
-          $entityKey = strtoupper($entityName);
-
-          if (!isset($entityMap[$entityKey])) {
-            Utils::printLn("     \033[93m⚠ Entity '\033[34m{$entityName}\033[93m' not found in entity map. Skipping.\033[0m");
-            continue;
-          }
-
-          $entity   = $entityMap[$entityKey];
+      if ($profileData['permissions']['regular'] === '*') {
+        foreach ($entityMap as $entityKey => $entity) {
           $moduleId = $entity->id_mdc_module;
           $entityId = $entity->id_mdc_module_entity;
 
           $configuredEntityIds[] = $entityId;
 
-          // Only call addModule() once per module per profile run:
           if (!in_array($moduleId, $linkedModules)) {
             $profileSvc->addModule($profileId, $moduleId);
-            // Flush so the permission rows inserted by addModule() are
-            // immediately visible to the SELECT inside applyEntityPermissions():
             Dao::flush();
             $linkedModules[] = $moduleId;
           }
 
-          // Apply the specific CRUD flags for this entity:
-          $profileSvc->applyEntityPermissions($profileId, $entityId, $operations);
+          $profileSvc->applyEntityPermissions($profileId, $entityId, "CRUD");
+        }
+        Utils::printLn("     \033[92m✔ All (*) regular permissions given.\033[0m");
+      } else {
+        foreach ($profileData['permissions']['regular'] as $permEntry) {
+          foreach ($permEntry as $entityName => $operations) {
+            $entityKey = strtoupper($entityName);
 
-          Utils::printLn("     \033[92m✔ Entity '\033[34m{$entityName}\033[92m' → \033[34m{$operations}\033[0m");
+            if (!isset($entityMap[$entityKey])) {
+              Utils::printLn("     \033[93m⚠ Entity '\033[34m{$entityName}\033[93m' not found in entity map. Skipping.\033[0m");
+              continue;
+            }
+
+            $entity   = $entityMap[$entityKey];
+            $moduleId = $entity->id_mdc_module;
+            $entityId = $entity->id_mdc_module_entity;
+
+            $configuredEntityIds[] = $entityId;
+
+            // Only call addModule() once per module per profile run:
+            if (!in_array($moduleId, $linkedModules)) {
+              $profileSvc->addModule($profileId, $moduleId);
+              // Flush so the permission rows inserted by addModule() are
+              // immediately visible to the SELECT inside applyEntityPermissions():
+              Dao::flush();
+              $linkedModules[] = $moduleId;
+            }
+
+            // Apply the specific CRUD flags for this entity:
+            $profileSvc->applyEntityPermissions($profileId, $entityId, $operations);
+
+            Utils::printLn("     \033[92m✔ Entity '\033[34m{$entityName}\033[92m' → \033[34m{$operations}\033[0m");
+          }
         }
       }
 
@@ -290,36 +357,59 @@ class Setup extends Cli
     // Each entry is a ds_key string of a IAM_CUSTOM_PERMISSION            //
     // ------------------------------------------------------------------ //
     if (!empty($profileData['permissions']['custom'])) {
-      foreach ($profileData['permissions']['custom'] as $permKey) {
-        if (empty($permKey)) continue;
+      if ($profileData['permissions']['custom'] === '*') {
+        $allCustomPerms = $this->getDao('IAM_CUSTOM_PERMISSION')->find("SELECT id_iam_custom_permission, ds_key FROM `IAM_CUSTOM_PERMISSION`");
+        foreach ($allCustomPerms as $cp) {
+          $alreadyLinked = $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')
+            ->filter('id_iam_accessprofile')->equalsTo($profileId)
+            ->and('id_iam_custom_permission')->equalsTo($cp->id_iam_custom_permission)
+            ->first(
+              "SELECT id_iam_accessprofile_custom_permission
+                 FROM `IAM_ACCESSPROFILE_CUSTOM_PERMISSION`
+                WHERE id_iam_accessprofile = ?id_iam_accessprofile?
+                  AND id_iam_custom_permission = ?id_iam_custom_permission?"
+            );
 
-        // Check if already linked:
-        $cp = $this->getDao('IAM_CUSTOM_PERMISSION')
-          ->filter('ds_key')->equalsTo($permKey)
-          ->first("SELECT id_iam_custom_permission FROM `IAM_CUSTOM_PERMISSION` WHERE ds_key = ?ds_key?");
-
-        if (!$cp) {
-          Utils::printLn("     \033[93m⚠ Custom permission '\033[34m{$permKey}\033[93m' not found. Skipping.\033[0m");
-          continue;
+          if (!$alreadyLinked) {
+            $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')->insert([
+              'id_iam_accessprofile'      => $profileId,
+              'id_iam_custom_permission'  => $cp->id_iam_custom_permission,
+            ]);
+          }
         }
+        Utils::printLn("     \033[92m✔ All (*) custom permissions linked.\033[0m");
+      } else {
+        foreach ($profileData['permissions']['custom'] as $permKey) {
+          if (empty($permKey)) continue;
 
-        $alreadyLinked = $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')
-          ->filter('id_iam_accessprofile')->equalsTo($profileId)
-          ->and('id_iam_custom_permission')->equalsTo($cp->id_iam_custom_permission)
-          ->first(
-            "SELECT id_iam_accessprofile_custom_permission
-               FROM `IAM_ACCESSPROFILE_CUSTOM_PERMISSION`
-              WHERE id_iam_accessprofile = ?id_iam_accessprofile?
-                AND id_iam_custom_permission = ?id_iam_custom_permission?"
-          );
+          // Check if already linked:
+          $cp = $this->getDao('IAM_CUSTOM_PERMISSION')
+            ->filter('ds_key')->equalsTo($permKey)
+            ->first("SELECT id_iam_custom_permission FROM `IAM_CUSTOM_PERMISSION` WHERE ds_key = ?ds_key?");
 
-        if (!$alreadyLinked) {
-          $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')->insert([
-            'id_iam_accessprofile'      => $profileId,
-            'id_iam_custom_permission'  => $cp->id_iam_custom_permission,
-          ]);
+          if (!$cp) {
+            Utils::printLn("     \033[93m⚠ Custom permission '\033[34m{$permKey}\033[93m' not found. Skipping.\033[0m");
+            continue;
+          }
+
+          $alreadyLinked = $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')
+            ->filter('id_iam_accessprofile')->equalsTo($profileId)
+            ->and('id_iam_custom_permission')->equalsTo($cp->id_iam_custom_permission)
+            ->first(
+              "SELECT id_iam_accessprofile_custom_permission
+                 FROM `IAM_ACCESSPROFILE_CUSTOM_PERMISSION`
+                WHERE id_iam_accessprofile = ?id_iam_accessprofile?
+                  AND id_iam_custom_permission = ?id_iam_custom_permission?"
+            );
+
+          if (!$alreadyLinked) {
+            $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')->insert([
+              'id_iam_accessprofile'      => $profileId,
+              'id_iam_custom_permission'  => $cp->id_iam_custom_permission,
+            ]);
+          }
+          Utils::printLn("     \033[92m✔ Custom permission '\033[34m{$permKey}\033[92m' linked.\033[0m");
         }
-        Utils::printLn("     \033[92m✔ Custom permission '\033[34m{$permKey}\033[92m' linked.\033[0m");
       }
     }
   }
@@ -369,9 +459,23 @@ class Setup extends Cli
         $toInsert['nr_session_timeout'] = (int) $userData['session_timeout'];
       }
 
+      if (isset($userData['multi_session'])) {
+        $toInsert['do_multi_session'] = strtoupper($userData['multi_session']);
+      }
+
       $user = $this->getDao('IAM_USER')->insert($toInsert);
       Utils::printLn("     \033[92m✔ Created user.\033[0m");
     } else {
+      // Sync mutable fields that may have changed in the config:
+      $updateData = [];
+      if (isset($userData['multi_session'])) {
+        $updateData['do_multi_session'] = strtoupper($userData['multi_session']);
+      }
+      if (!empty($updateData)) {
+        $this->getDao('IAM_USER')
+          ->filter('id_iam_user')->equalsTo($user->id_iam_user)
+          ->update($updateData);
+      }
       Utils::printLn("     \033[93m↺ User already exists, keeping data.\033[0m");
     }
 
@@ -405,6 +509,41 @@ class Setup extends Cli
           Utils::printLn("     \033[92m✔ Linked to profile tag '\033[34m{$tag}\033[92m'.\033[0m");
         } else {
           Utils::printLn("     \033[93m— Already linked to profile tag '\033[34m{$tag}\033[93m'.\033[0m");
+        }
+      }
+    }
+
+    // Link to team tags
+    if (!empty($userData['team_tags'])) {
+      foreach ($userData['team_tags'] as $tag) {
+        $team = $this->getDao('IAM_USERTEAM')
+          ->filter('ds_tag')->equalsTo($tag)
+          ->first("SELECT id_iam_userteam FROM `IAM_USERTEAM` WHERE ds_tag = ?ds_tag?");
+
+        if (!$team) {
+          Utils::printLn("     \033[93m⚠ Team with tag '\033[34m{$tag}\033[93m' not found. Skipping.\033[0m");
+          continue;
+        }
+
+        $alreadyLinked = $this->getDao('IAM_USERTEAM_USER')
+          ->filter('id_iam_user')->equalsTo($user->id_iam_user)
+          ->and('id_iam_userteam')->equalsTo($team->id_iam_userteam)
+          ->first(
+            "SELECT id_iam_userteam_user
+               FROM `IAM_USERTEAM_USER`
+              WHERE id_iam_user = ?id_iam_user?
+                AND id_iam_userteam = ?id_iam_userteam?"
+          );
+
+        if (!$alreadyLinked) {
+          $this->getDao('IAM_USERTEAM_USER')->insert([
+            'ds_key'          => uniqid(),
+            'id_iam_user'     => $user->id_iam_user,
+            'id_iam_userteam' => $team->id_iam_userteam,
+          ]);
+          Utils::printLn("     \033[92m✔ Linked to team tag '\033[34m{$tag}\033[92m'.\033[0m");
+        } else {
+          Utils::printLn("     \033[93m— Already linked to team tag '\033[34m{$tag}\033[93m'.\033[0m");
         }
       }
     }

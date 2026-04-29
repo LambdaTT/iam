@@ -12,6 +12,7 @@ class AddFieldUsernameOnTableUser extends Migration
     $this->Table('IAM_USER')
       ->string('ds_email', 255)->nullable()->setDefaultValue(null)
       ->string('ds_username', 255)->nullable()->setDefaultValue(null)
+      ->Index('USERNAME', DbVocab::IDX_UNIQUE)->onColumn('ds_username')
     ;
   }
 }

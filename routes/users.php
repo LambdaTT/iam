@@ -137,6 +137,47 @@ class Users extends WebService
       return $this->response->withStatus(204);
     });
 
+    $this->addEndpoint('PUT', '/v1/admin-change-pass/?param?', function ($param, Request $r) {
+      // Auth user login:
+      if (!$this->getService('iam/session')->authenticate())
+        return $this->response->withStatus(401);
+
+      // Validate user permissions:
+      $this->getService('iam/permission')->validatePermissions([
+        'IAM_USER' => 'U'
+      ]);
+
+      $data = $r->getBody();
+      if (empty($data['ds_password']))
+        throw new BadRequest('Forneça a nova senha.');
+
+      $user = $this->getService('iam/user')
+        ->get([
+          'ds_key' => "\$or|{$param}",
+          'ds_username' => "\$or|{$param}",
+          'ds_email' => "\$or|{$param}",
+          'ds_phone1' => "\$or|{$param}",
+          'ds_phone2' => "\$or|{$param}"
+        ]);
+
+      if (empty($user))
+        throw new NotFound('O usuário não foi encontrado.');
+
+      $data = [
+        'ds_password' => $data['ds_password']
+      ];
+      $rows = $this->getService('iam/user')->updUser(
+        [
+          'ds_key' => $user->ds_key
+        ],
+        $data
+      );
+
+      if ($rows < 1) return $this->response->withStatus(404);
+
+      return $this->response->withStatus(204);
+    });
+
     $this->addEndpoint('DELETE', '/v1/user/?userKey?', function (Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);

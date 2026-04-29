@@ -29,13 +29,17 @@ namespace Iam\Services;
 use SplitPHP\Service;
 use SplitPHP\Utils;
 use SplitPHP\Request;
-use Exception;
 use SplitPHP\Exceptions\BadRequest;
 use SplitPHP\Exceptions\FailedValidation;
 use SplitPHP\Exceptions\Unauthorized;
+use Exception;
 
 class Session extends Service
 {
+  public function __construct()
+  {
+    include_once ROOT_PATH . "/core/kernel/class.request.php";
+  }
   // Performs the user authentication:
   public function authenticate($update = true)
   {
@@ -84,7 +88,11 @@ class Session extends Service
       throw new Unauthorized("Não foi possível fazer login com as credenciais fornecidas.");
 
     // Performs login, creating a session for the user identified.
-    return $this->create($user);
+    $session = $this->create($user);
+
+    $this->createDeviceSession($session);
+
+    return $session;
   }
 
   // Performs login for an user identified by credentials sent by an SSO
@@ -102,7 +110,11 @@ class Session extends Service
     if (empty($usr)) throw new Unauthorized("Invalid user");
 
     // Performs login, creating a session for the user identified.
-    return $this->create($usr, $credentials['ssoSessionKey']);
+    $session = $this->create($usr, $credentials['ssoSessionKey']);
+
+    $this->createDeviceSession($session);
+
+    return $session;
   }
 
   public function loginByAuthToken($token)
@@ -113,6 +125,8 @@ class Session extends Service
     $session = $this->create($user);
 
     if (!empty($session)) $this->getService('iam/authtoken')->consume($token);
+
+    $this->createDeviceSession($session);
 
     return $session;
   }
@@ -247,16 +261,13 @@ class Session extends Service
       ->delete();
   }
 
-  // Identify session key sent by the client. If it's not on the cookies or on the headers, returns null.
+  // Identify session key sent by the client via the unified request context.
+  // Request::$context is auto-populated from HTTP headers and cookies in
+  // Request::__construct(). Endpoints that cannot set headers (e.g. SSE)
+  // may call Request::setContext('iam_session_key', $value) before authenticate().
   private function getKey()
   {
-    if (!empty($_SERVER['HTTP_IAM_SESSION_KEY'])) {
-      return $_SERVER['HTTP_IAM_SESSION_KEY'];
-    } else if (!empty($_COOKIE['iam_session_key'])) {
-      return $_COOKIE['iam_session_key'];
-    } else {
-      return null;
-    }
+    return Request::getContext('iam_session_key');
   }
 
   private function isSessionExpired()
@@ -272,5 +283,18 @@ class Session extends Service
 
     // Check if session is expired:
     return (!empty($session->dt_updated) && (time() - strtotime($session->dt_updated) > $sessionTimeout)) || (empty($session->dt_updated) && (time() - strtotime($session->dt_created) > $sessionTimeout));
+  }
+
+  private function createDeviceSession($session)
+  {
+    $deviceKey = $this->getService('iam/device')->getDeviceKey();
+
+    if (!empty($deviceKey)) {
+      $device = $this->getService('iam/device')->get(['ds_key' => $deviceKey]);
+
+      if (empty($device)) $device = $this->getService('iam/device')->create($deviceKey);
+
+      $this->getService('iam/devicesession')->create($session->id_iam_session, $device->id_iam_device);
+    }
   }
 }
