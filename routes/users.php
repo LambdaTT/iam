@@ -86,13 +86,6 @@ class Users extends WebService
       $profiles = json_decode($data['selected_profiles'], true);
       unset($data['selected_profiles']);
 
-      if (!empty($_FILES['user_avatar'])) {
-        $data['user_avatar'] = [
-          'name' => $_FILES['user_avatar']['name'],
-          'path' => $_FILES['user_avatar']['tmp_name'],
-        ];
-      }
-
       $newUser = $this->getService('iam/user')->create($data);
       unset($newUser->ds_password);
 
