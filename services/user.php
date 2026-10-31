@@ -27,6 +27,7 @@
 namespace Iam\Services;
 
 use SplitPHP\Service;
+use SplitPHP\EventDispatcher;
 use Exception;
 use SplitPHP\Database\Database;
 use SplitPHP\Database\Dbmetadata;
@@ -124,6 +125,22 @@ class User extends Service
   // Creates a new user register.
   public function create(&$data)
   {
+    // Resolve the access-profile TAGS the user is being created with, BEFORE the field is
+    // stripped below. The front-end sends `selected_profiles` as profile KEYS (ds_key); these
+    // profiles are attached by the caller RIGHT AFTER create() returns, so they are not in the
+    // database yet at dispatch time — the 'iam.user.created' listener decides from these tags,
+    // not from the DB.
+    $profileTags = [];
+    if (!empty($data['selected_profiles'])) {
+      $keys = is_array($data['selected_profiles'])
+        ? $data['selected_profiles']
+        : (json_decode($data['selected_profiles'], true) ?: []);
+      foreach ($keys as $k) {
+        $prf = $this->getService('iam/accessprofile')->get(['ds_key' => $k]);
+        if (!empty($prf)) $profileTags[] = $prf->ds_tag;
+      }
+    }
+
     // Validates new user email and password:
     $this->validateEmail($data);
     $this->validatePassword($data['ds_password']);
@@ -156,7 +173,17 @@ class User extends Service
     $usrdata['ds_password'] = password_hash($usrdata['ds_password'], PASSWORD_DEFAULT);
 
     $this->removeUserData($data);
-    return $this->getDao('IAM_USER')->insert($usrdata);
+    $newUser = $this->getDao('IAM_USER')->insert($usrdata);
+
+    // Notify the rest of the application that a user was created (e.g. to enroll managers into
+    // the notification team). Carries the intended profile tags — see above.
+    EventDispatcher::dispatch(
+      fn() => true,
+      'iam.user.created',
+      [$newUser, $profileTags]
+    );
+
+    return $newUser;
   }
 
   // Updates an user, identified by parameters, with the passed data.

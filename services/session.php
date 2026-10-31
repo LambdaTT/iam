@@ -99,10 +99,10 @@ class Session extends Service
   public function loginSSO($credentials)
   {
     // Retrieves credentials from token sent by SSO
-    $credentials = unserialize(Utils::dataDecrypt($credentials, PUBLIC_KEY));
+    $credentials = unserialize(Utils::dataDecrypt($credentials, APP_SECRET));
 
     // Checks if the application's secret key, only known by the SSO and the application itself is correct. 
-    if (empty($credentials) || $credentials['applicationSecret'] != PRIVATE_KEY)
+    if (empty($credentials) || $credentials['applicationSecret'] != APP_SECRET)
       throw new Unauthorized("Invalid credentials");
 
     // Get user data. If no user were found, throws exception.
@@ -119,7 +119,7 @@ class Session extends Service
 
   public function loginByAuthToken($token)
   {
-    $user = $this->getService('iam/user')->get(['ds_key' => Utils::dataDecrypt($token, PRIVATE_KEY)]);
+    $user = $this->getService('iam/user')->get(['ds_key' => Utils::dataDecrypt($token, APP_SECRET)]);
     if (empty($user)) throw new FailedValidation("Não foi possível efetuar o login.");
 
     $session = $this->create($user);

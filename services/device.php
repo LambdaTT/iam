@@ -47,7 +47,7 @@ class Device extends Service
       $key = $_COOKIE['iam_device_key'];
     }
 
-    $key = $key ? Utils::dataDecrypt($key, PRIVATE_KEY) : null;
+    $key = $key ? Utils::dataDecrypt($key, APP_SECRET) : null;
 
     return $key;
   }

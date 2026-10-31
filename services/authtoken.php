@@ -45,7 +45,7 @@ class Authtoken extends Service
   public function create(string $userKey, ?int $expiration = null)
   {
     $tokenObj = (object) [
-      "ds_hash" => Utils::dataEncrypt($userKey, PRIVATE_KEY)
+      "ds_hash" => Utils::dataEncrypt($userKey, APP_SECRET)
     ];
 
     // If no expiration time were provided, the token won't expire
@@ -83,7 +83,7 @@ class Authtoken extends Service
 
   public function getTokenUser($tokenHash)
   {
-    $usrKey = Utils::dataDecrypt($tokenHash, PRIVATE_KEY);
+    $usrKey = Utils::dataDecrypt($tokenHash, APP_SECRET);
 
     return $this->getService('iam/user')->get(['ds_key' => $usrKey]);
   }

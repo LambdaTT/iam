@@ -84,8 +84,11 @@ class Users extends WebService
       ]);
 
       $profiles = json_decode($data['selected_profiles'], true);
-      unset($data['selected_profiles']);
 
+      // NÃO remover `selected_profiles` de $data aqui: create() o lê para resolver as tags dos
+      // perfis e emitir 'iam.user.created' (o campo não entra no INSERT — é filtrado pelo
+      // whitelist de colunas em filterUserData). Os perfis seguem sendo atribuídos por
+      // updUserProfiles logo abaixo.
       $newUser = $this->getService('iam/user')->create($data);
       unset($newUser->ds_password);
 

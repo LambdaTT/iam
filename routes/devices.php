@@ -15,7 +15,7 @@ class Devices extends WebService
 
     $this->addEndpoint('POST', '/v1/device', function () {
       $device = $this->getService(self::SERVICE)->create();
-      $device->ds_key = Utils::dataEncrypt($device->ds_key, PRIVATE_KEY);
+      $device->ds_key = Utils::dataEncrypt($device->ds_key, APP_SECRET);
 
       return $this->response
         ->withStatus(201)
