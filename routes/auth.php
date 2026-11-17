@@ -36,13 +36,33 @@ class Auth extends WebService
     $this->setAntiXsrfValidation(false);
 
     // SESSION ENDPOINTS:
-    $this->addEndpoint('GET', '/v1/logged-user', function () {
+    /*---------------*/
+    $this->addEndpoint('GET', '/v1/logged/user', function () {
       $user = $this->getService('iam/session')->getLoggedUser();
 
       if (empty($user)) return $this->response->withStatus(401);
 
       return $this->response->withData($user);
     }, true);
+
+    $this->addEndpoint('GET', '/v1/logged/permissions', function () {
+      // auth user login:
+      if (!$this->getService('iam/session')->authenticate()) 
+        return $this->response->withStatus(401);
+
+      $user = $this->getService('iam/session')->getLoggedUser();
+
+      $data = [
+        'isSuperAdmin' => $user->do_is_superadmin,
+        'permissions' => $this->getService('iam/user')->listPermissions([
+          'id_iam_user' => $user->id_iam_user
+        ]),
+      ];
+
+      return $this->response
+        ->withStatus(200)
+        ->withData($data);
+    });
 
     $this->addEndpoint('POST', '/v1/login-sso/?credentials?', function (Request $r) {
       $credentials = $r->getRoute()->params['credentials'] ?? null;

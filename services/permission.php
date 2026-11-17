@@ -27,240 +27,161 @@
 namespace Iam\Services;
 
 use SplitPHP\Service;
+use SplitPHP\Exceptions\BadRequest;
+use SplitPHP\Exceptions\Conflict;
 use SplitPHP\Exceptions\Forbidden;
 use SplitPHP\Exceptions\NotFound;
 
 class Permission extends Service
 {
-  // List all permissions related to all modules that are related to a single access profile, identified by its unique key.
-  public function permissionsByModule($profileKey)
+  private const PERMISSION_TABLE = 'IAM_PERMISSION';
+  private const PROFILE_TABLE = 'IAM_ACCESSPROFILE';
+  private const PRFBRIDGE_TABLE = 'IAM_ACCESSPROFILE_PERMISSION';
+  private const USRBRIDGE_TABLE = 'IAM_ACCESSPROFILE_USER';
+
+  public function get($filters = []): ?object
   {
-    // Get a list of all modules related to the profile:
-    $modules = $this->getService('iam/accessprofile')->getModules($profileKey, ['$sort_by' => 1]);
-
-    // For each module found, retrieve a list of its permissions.
-    $results = [];
-    foreach ($modules as $mod) {
-      if ($mod->checked == 'Y') {
-        $mod->permissions = $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-          ->filter('module_id')->equalsTo($mod->id_mdc_module)
-          ->and('profile_key')->equalsTo($profileKey)
-          ->find('iam/permissionsbymodule');
-
-        $results[] = $mod;
-      }
-    }
-
-    return $results;
+    return $this->getDao(self::PERMISSION_TABLE)
+      ->bindParams($filters)
+      ->first();
   }
 
   // Create a new custom(execution) permission.
-  public function createExecPermission($data)
+  public function create(string $title, ?string $tag = null): object
   {
-    // Removes forbidden fields from $data:
-    $data = $this->getService('utils/misc')->dataBlacklist($data, [
-      'id_iam_custom_permission',
-      'id_iam_user_created',
-      'dt_created'
-    ]);
+    $title = trim($title);
+    if($title == '') throw new BadRequest('Não é possível criar permissões sem título.');
 
-    // Set default values:
-    $data['id_iam_user_created'] = $this->getService('iam/session')->getLoggedUser()->id_iam_user;
+    $tag = $tag && (trim($tag) != '') ? 
+      str_replace(' ', '.', trim($tag)) : 
+      $this->genTagFromTitle($title);
 
-    return $this->getDao('IAM_CUSTOM_PERMISSION')->insert($data);
+    $this->checkForTagConflict($tag);
+
+    return $this->getDao(self::PERMISSION_TABLE)
+      ->insert([
+        'id_iam_user_created' => $this->getService('iam/session')->getLoggedUser()?->id_iam_user,
+        'ds_title' => $title,
+        'ds_tag' => $tag,
+      ]);
   }
 
-  // Based on parameters, update a permission with the data passed.
-  public function updPermission($params, $data)
+  public function remove(array $filters): int
   {
-    // Removes forbidden fields from $data:
-    $data = $this->getService('utils/misc')->dataBlacklist($data, [
-      'id_iam_accessprofile_permission',
-      'ds_key',
-      'id_iam_accessprofile_module',
-      'id_mdc_module_entity'
-    ]);
-
-    return $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-      ->bindParams($params)
-      ->update($data);
+    return $this->getDao(self::PERMISSION_TABLE)
+      ->bindParams($filters)
+      ->delete();
   }
 
   // Attach a custom(execution) permission to an access profile, both identified by their unique keys.
-  public function relateCustomPermission($profileKey, $permissionKey)
+  public function associate(string $prfNeedle, string $prmTag): object
   {
-    if (empty($prm = $this->getDao('IAM_CUSTOM_PERMISSION')
-      ->filter('ds_key')->equalsTo($permissionKey)
-      ->first(
-        "SELECT 
-            id_iam_custom_permission 
-          FROM `IAM_CUSTOM_PERMISSION` 
-          WHERE ds_key = ?ds_key?"
-      ))) throw new NotFound("Permissão não encontrada.");
+    if (empty($prfId = $this->getDao(self::PROFILE_TABLE)
+      ->filter('ds_key')->equalsTo($prfNeedle)
+      ->or('ds_tag')->equalsTo($prfNeedle)
+      ->first()?->id_iam_accessprofile)) throw new NotFound("O perfil de acesso solicitado não foi encontrado.");
+    
+    if (empty($prmId = $this->getDao(self::PERMISSION_TABLE)
+      ->filter('ds_tag')->equalsTo($prmTag)
+      ->first()?->id_iam_permission)) throw new NotFound("A permissão solicitada não foi encontrada.");
 
-
-    if (empty($prf = $this->getDao('IAM_ACCESSPROFILE')
-      ->filter('ds_key')->equalsTo($profileKey)
-      ->first(
-        "SELECT 
-            id_iam_accessprofile 
-          FROM `IAM_ACCESSPROFILE` 
-          WHERE ds_key = ?ds_key?"
-      ))) throw new NotFound("Perfil de acesso não encontrado.");
-
-    $loggedUser = $this->getService('iam/session')->getLoggedUser();
-
-    // Create associative dataset which will be inserted on the database:
-    $toSave = [
-      'id_iam_custom_permission' => $prm->id_iam_custom_permission,
-      'id_iam_accessprofile' => $prf->id_iam_accessprofile,
-      'id_iam_user_created' => !empty($loggedUser) ? $loggedUser->id_iam_user : null,
-    ];
-
-    return $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')->insert($toSave);
+    return $this->getAssociation($prfId, $prmId) ?? $this->createAssociation($prfId, $prmId);
   }
 
-  // Detach a custom(execution) permission from an access profile, both identified by their unique keys.
-  public function customPermissionRemoveRelation($profileKey, $permissionKey)
+  public function disassociate(string $prfNeedle, string $prmTag): int
   {
-    if (empty($prm = $this->getDao('IAM_CUSTOM_PERMISSION')
-      ->filter('ds_key')->equalsTo($permissionKey)
-      ->first(
-        "SELECT 
-            id_iam_custom_permission 
-          FROM `IAM_CUSTOM_PERMISSION` 
-          WHERE ds_key = ?ds_key?"
-      ))) throw new NotFound("Permissão não encontrada.");
+    if (empty($prf = $this->getDao(self::PROFILE_TABLE)
+      ->filter('ds_key')->equalsTo($prfNeedle)
+      ->or('ds_tag')->equalsTo($prfNeedle)
+      ->first())) throw new NotFound("O perfil de acesso solicitado não foi encontrado.");
 
-    if (empty($prf = $this->getDao('IAM_ACCESSPROFILE')
-      ->filter('ds_key')->equalsTo($profileKey)
-      ->first(
-        "SELECT 
-            id_iam_accessprofile 
-          FROM `IAM_ACCESSPROFILE` 
-          WHERE ds_key = ?ds_key?"
-      ))) throw new NotFound("Perfil de acesso não encontrado.");
+    if (empty($prm = $this->getDao(self::PERMISSION_TABLE)
+      ->filter('ds_tag')->equalsTo($prmTag)
+      ->first())) throw new NotFound("A permissão solicitada não foi encontrada.");
 
-    return $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')
-      ->filter('id_iam_custom_permission')->equalsTo($prm->id_iam_custom_permission)
+
+    return $this->getDao(self::PRFBRIDGE_TABLE)
+      ->filter('id_iam_permission')->equalsTo($prm->id_iam_permission)
       ->and('id_iam_accessprofile')->equalsTo($prf->id_iam_accessprofile)
       ->delete();
   }
 
-  // Validate if the logged user has the specified permission. If the validation succeed, returns true, else returns false or throws an exception.
-  public function validatePermissions(array $requiredPermissions, bool $throwException = true)
+  // Validate if the logged user has the specified permission:
+  public function canExecute(string|array $prmTags, bool $throwException = true): bool
   {
-    $failure = false;
-
-    // If no logged user were found, validation fails:
+    // If there's no logged user, validation fails:
     $user = $this->getService('iam/session')->getLoggedUser();
     if (empty($user)) {
       if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
       else return false;
     }
-
-    // If logged user were super admin, validation succeeds:
+      
+    // If logged user is super admin, validation succeeds:
     if ($user->do_is_superadmin == 'Y') return true;
-
-    // List all permissions of the logged user:
-    $processedPermissions = [];
-    $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-      ->filter('id_iam_user')->equalsTo($user->id_iam_user)
-      ->fetch(function ($permission) use (&$processedPermissions) {
-        if (array_key_exists($permission->ds_entity_name, $processedPermissions)) {
-          foreach ($processedPermissions[$permission->ds_entity_name] as $lvl => $val)
-            if ($val != 'Y')
-              $processedPermissions[$permission->ds_entity_name]->$lvl = $permission->$lvl;
-        } else {
-          $processedPermissions[$permission->ds_entity_name] = (object) [
-            "do_read" => $permission->do_read,
-            "do_create" => $permission->do_create,
-            "do_update" => $permission->do_update,
-            "do_delete" => $permission->do_delete
-          ];
-        }
-      }, "iam/permissionsofuser");
-
-    // Check each required permission. If the logged user lack the permission or the required level of the permission, validation fails:
-    foreach ($requiredPermissions as $ent => $strReq) {
-      if (!array_key_exists($ent, $processedPermissions)) {
-        $failure = true;
-        break;
-      }
-      if (str_contains($strReq, 'C') && $processedPermissions[$ent]->do_create != 'Y') {
-        $failure = true;
-        break;
-      }
-      if (str_contains($strReq, 'R') && $processedPermissions[$ent]->do_read != 'Y') {
-        $failure = true;
-        break;
-      }
-      if (str_contains($strReq, 'U') && $processedPermissions[$ent]->do_update != 'Y') {
-        $failure = true;
-        break;
-      }
-      if (str_contains($strReq, 'D') && $processedPermissions[$ent]->do_delete != 'Y') {
-        $failure = true;
-        break;
-      }
-    }
-    // If $throwException flag were set to true, on a failed validation, throws an exception, instead of returning false:
-    if ($failure) {
+    
+    $prmTags = is_string($prmTags) ? [$prmTags] : $prmTags;
+    if (empty($prmTags)) {
       if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
       else return false;
     }
+
+    $prmTbName = self::PERMISSION_TABLE;
+    $bridgeTbName = self::PRFBRIDGE_TABLE;
+    $prfTbName = self::PROFILE_TABLE;
+    $usrBridgeTbName = self::USRBRIDGE_TABLE;
+    $hasPermission = !empty($this->getDao($prmTbName)
+      ->filter('prmTags')->in($prmTags)
+      ->and('userId')->equalsTo($user->id_iam_user)
+      ->first(
+        "SELECT DISTINCT 
+            prm.id_iam_permission
+          FROM `$prmTbName` prm 
+          JOIN `$bridgeTbName` assoc
+          ON assoc.id_iam_permission = prm.id_iam_permission
+          JOIN `$usrBridgeTbName` prf 
+          ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
+          AND prf.id_iam_user = ?userId?
+          WHERE prm.ds_tag IN ?prmTags?"
+      )
+    );
+
+    if(!$hasPermission){
+      if($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
+      else return false;
+    }
+
     return true;
   }
 
-  // Validate if the logged user has the specified custom(execution) permission:
-  public function canExecute(string $permissionKey, bool $throwException = true)
+  private function checkForTagConflict(string $tag): void
   {
-    // If no logged user were found, validation fails:
-    $user = $this->getService('iam/session')->getLoggedUser();
-    if (empty($user)) {
-      if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
-      else return false;
-    }
+    $conflicting = !empty($this->getDao(self::PERMISSION_TABLE)
+      ->filter('ds_tag')->equalsTo($tag)
+      ->first());
 
-    // If logged user were super admin, validation succeeds:
-    if ($user->do_is_superadmin == 'Y') return true;
-
-    // List all custom(execution) permissions of the logged user:
-    $permissions = [];
-    $this->getDao('IAM_CUSTOM_PERMISSION')
-      ->filter('id_iam_user')->equalsTo($user->id_iam_user)
-      ->fetch(function ($dbperm) use ($permissions) {
-        $permissions[] = $dbperm->ds_key;
-      }, 'iam/custompermissionsofuser');
-
-    // If the specified custom(execution) permission were not found among the logged user's permissions, validation fails.
-    if (!in_array($permissionKey, $permissions)) {
-      // If $throwException flag were set to true, on a failed validation, throws an exception, instead of returning false.
-      if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
-      else return false;
-    }
-    return true;
+    if($conflicting) throw new Conflict("Já existe outra permissão com esta mesma tag.");
   }
 
-  // Checks if the logged user has access to at least one of the specified modules.
-  public function hasAccessToModules(array $modules)
+  private function genTagFromTitle(string $title): string
   {
-    // Get the logged user:
-    $user = $this->getService('iam/session')->getLoggedUser();
+    return str_replace(' ', '.', strtolower($title));
+  }
 
-    // If logged user were super admin, validation succeeds:
-    if ($user->do_is_superadmin == 'Y') return true;
+  private function getAssociation(int $prfId, int $prmId): ?object
+  {
+    return $this->getDao(self::PRFBRIDGE_TABLE)
+      ->filter('id_iam_accessprofile')->equalsTo($prfId)
+      ->and('id_iam_permission')->equalsTo($prmId)
+      ->first();
+  }
 
-    // List all modules that the logged user has access to:
-    $userAllowedModules = $this->getDao('MDC_MODULE')
-      ->filter('id_iam_user')->equalsTo($user->id_iam_user)
-      ->find('iam/usermodules');
-
-    // If the user has access of anyone of the specified modules, this validation succeed.
-    foreach ($userAllowedModules as $mod) {
-      if (in_array($mod->ds_key, $modules)) return true;
-    }
-
-    return false;
+  private function createAssociation(int $prfId, int $prmId): ?object
+  {
+    return $this->getDao(self::PRFBRIDGE_TABLE)
+      ->insert([
+        'id_iam_accessprofile' => $prfId,
+        'id_iam_permission' => $prmId,
+        'id_iam_user_created' => $this->getService('iam/session')->getLoggedUser()?->id_iam_user,
+      ]);
   }
 }

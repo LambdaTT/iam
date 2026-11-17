@@ -8,7 +8,7 @@ use SplitPHP\Utils;
 
 class Setup extends Cli
 {
-  private static $SETTINGS_FILEPATH;
+  private static string $SETTINGS_FILEPATH;
 
   public function init(): void
   {
@@ -31,28 +31,26 @@ class Setup extends Cli
       Utils::printLn();
 
       // ------------------------------------------------------------------ //
-      // 1. Build a lookup map of all known entities: entity_name → record   //
+      // 1. Process Permissions (catalog)                                    //
+      // Each entry: { "tag": "orders.manage", "title": "Manage Orders" }    //
       // ------------------------------------------------------------------ //
-      $entityMap = $this->buildEntityMap();
-
-      // ------------------------------------------------------------------ //
-      // 2. Process Custom Permissions                                        //
-      // ------------------------------------------------------------------ //
-      $customPermissionsById = [];
-      if (!empty($settings['customPermissions'])) {
-        Utils::printLn("\033[36m>> 🔐 Processing Custom Permissions...\033[0m");
-        foreach ($settings['customPermissions'] as $cpData) {
-          $cp = $this->upsertCustomPermission($cpData, $entityMap);
-          if ($cp) {
-            $customPermissionsById[$cpData['ds_key']] = $cp;
-            Utils::printLn("   \033[92m✔ Custom permission '\033[34m{$cpData['ds_key']}\033[92m' ready.\033[0m");
+      if (!empty($settings['permissions'])) {
+        Utils::printLn("\033[36m>> 🔐 Processing Permissions...\033[0m");
+        foreach ($settings['permissions'] as $permData) {
+          $prm = $this->upsertPermission($permData);
+          if ($prm) {
+            Utils::printLn("   \033[92m✔ Permission '\033[34m{$prm->ds_tag}\033[92m' ready.\033[0m");
           }
         }
         Utils::printLn();
       }
 
+      // Flush so profile permission resolution below (by tag / '*') sees the
+      // freshly-upserted IAM_PERMISSION rows:
+      Dao::flush();
+
       // ------------------------------------------------------------------ //
-      // 2.5 Process Teams                                                    //
+      // 2. Process Teams                                                     //
       // ------------------------------------------------------------------ //
       if (!empty($settings['teams'])) {
         Utils::printLn("\033[36m>> 🛡️  Processing Teams...\033[0m");
@@ -68,7 +66,7 @@ class Setup extends Cli
       if (!empty($settings['accessprofiles'])) {
         Utils::printLn("\033[36m>> 👤 Processing Access Profiles...\033[0m");
         foreach ($settings['accessprofiles'] as $profileData) {
-          $this->processAccessProfile($profileData, $entityMap);
+          $this->processAccessProfile($profileData);
         }
         Utils::printLn();
       }
@@ -95,19 +93,6 @@ class Setup extends Cli
   // ======================================================================== //
 
   /**
-   * Build a flat map of entity_name → entity record (including id_mdc_module).
-   * This avoids repeated DB queries when resolving entity names to their modules.
-   */
-  private function buildEntityMap(): array
-  {
-    $map = [];
-    $this->getDao('MDC_MODULE_ENTITY')->fetch(function ($row) use (&$map) {
-      $map[strtoupper($row->ds_entity_name)] = $row;
-    }, "SELECT ent.id_mdc_module_entity, ent.id_mdc_module, ent.ds_entity_name FROM `MDC_MODULE_ENTITY` ent");
-    return $map;
-  }
-
-  /**
    * Resolve the plain-text password spec from the JSON.
    * Supports:
    *   - "generate(sha256, uniqid)"  → sha256 hash of uniqid()
@@ -125,57 +110,39 @@ class Setup extends Cli
   }
 
   /**
-   * Upsert a custom permission record.
-   * ds_key is used as the natural unique identifier.
-   * The 'module' field in the JSON must be an entity name whose module will be used.
+   * Upsert a permission record into IAM_PERMISSION.
+   * ds_tag is the natural unique identifier; ds_title defaults to the tag.
+   * Each entry: { "tag": "orders.manage", "title": "Manage Orders" }
    */
-  private function upsertCustomPermission(array $data, array $entityMap): ?object
+  private function upsertPermission(array $data): ?object
   {
-    if (empty($data['ds_key'])) {
-      Utils::printLn("   \033[93m⚠ Skipping custom permission without 'ds_key'.\033[0m");
+    $tag = isset($data['tag']) ? trim($data['tag']) : '';
+    if ($tag === '') {
+      Utils::printLn("   \033[93m⚠ Skipping permission without 'tag'.\033[0m");
       return null;
     }
 
-    // Resolve the module from the entity name, if provided:
-    $moduleId = null;
-    if (!empty($data['module'])) {
-      $entityKey = strtoupper($data['module']);
-      if (isset($entityMap[$entityKey])) {
-        $moduleId = $entityMap[$entityKey]->id_mdc_module;
-      } else {
-        // Try looking up directly as a module title:
-        $mod = $this->getDao('MDC_MODULE')
-          ->filter('ds_title')->equalsTo($data['module'])
-          ->first("SELECT id_mdc_module FROM `MDC_MODULE` WHERE ds_title = ?ds_title?");
-        $moduleId = $mod ? $mod->id_mdc_module : null;
-      }
-    }
+    $title = !empty($data['title']) ? $data['title'] : $tag;
 
-    $existing = $this->getDao('IAM_CUSTOM_PERMISSION')
-      ->filter('ds_key')->equalsTo($data['ds_key'])
-      ->first("SELECT * FROM `IAM_CUSTOM_PERMISSION` WHERE ds_key = ?ds_key?");
+    $existing = $this->getDao('IAM_PERMISSION')
+      ->filter('ds_tag')->equalsTo($tag)
+      ->first("SELECT * FROM `IAM_PERMISSION` WHERE ds_tag = ?ds_tag?");
 
     if ($existing) {
-      // Update title and module if changed:
-      $updateData = [];
-      if (!empty($data['ds_title'])) $updateData['ds_title'] = $data['ds_title'];
-      if ($moduleId !== null)        $updateData['id_mdc_module'] = $moduleId;
-
-      if (!empty($updateData)) {
-        $this->getDao('IAM_CUSTOM_PERMISSION')
-          ->filter('ds_key')->equalsTo($data['ds_key'])
-          ->update($updateData);
+      // Keep the title in sync with the config:
+      if ($existing->ds_title !== $title) {
+        $this->getDao('IAM_PERMISSION')
+          ->filter('id_iam_permission')->equalsTo($existing->id_iam_permission)
+          ->update(['ds_title' => $title]);
+        $existing->ds_title = $title;
       }
       return $existing;
     }
 
-    // Insert:
-    $toInsert = [
-      'ds_key'      => $data['ds_key'],
-      'ds_title'    => $data['ds_title'] ?? $data['ds_key'],
-      'id_mdc_module' => $moduleId,
-    ];
-    return $this->getDao('IAM_CUSTOM_PERMISSION')->insert($toInsert);
+    return $this->getDao('IAM_PERMISSION')->insert([
+      'ds_title' => $title,
+      'ds_tag'   => $tag,
+    ]);
   }
 
   /**
@@ -206,7 +173,7 @@ class Setup extends Cli
       $updData = [];
       if (!empty($teamData['description'])) $updData['tx_description'] = $teamData['description'];
       if (!empty($teamData['name']) && $team->ds_name !== $teamData['name']) $updData['ds_name'] = $teamData['name'];
-      
+
       if (!empty($updData)) {
         $this->getDao('IAM_USERTEAM')
           ->filter('id_iam_userteam')->equalsTo($team->id_iam_userteam)
@@ -217,17 +184,20 @@ class Setup extends Cli
   }
 
   /**
-   * Upsert an access profile and apply all its permissions (regular + custom).
+   * Upsert an access profile and sync its permission associations.
+   *
+   * profileData['permissions'] is a declarative desired-state:
+   *   - array of permission tags → ["orders.manage", "users.read"]
+   *   - "*"                      → every permission known to IAM_PERMISSION
+   * When the key is present, the profile ends up associated with EXACTLY the
+   * resolved set (missing ones are attached, extras are detached).
    */
-  private function processAccessProfile(array $profileData, array $entityMap): void
+  private function processAccessProfile(array $profileData): void
   {
     $tag   = $profileData['tag']   ?? null;
     $name  = $profileData['name']  ?? ($tag ?? 'Unnamed Profile');
 
     Utils::printLn("   \033[36m↳ Profile '\033[34m{$name}\033[36m'...\033[0m");
-
-    /** @var \Iam\Services\Accessprofile $profileSvc */
-    $profileSvc = $this->getService('iam/accessprofile');
 
     // Find or create the profile (match by tag, then by title):
     $profile = null;
@@ -244,14 +214,14 @@ class Setup extends Cli
 
     if (!$profile) {
       $profile = $this->getDao('IAM_ACCESSPROFILE')->insert([
-        'ds_key'   => uniqid(),
-        'ds_title' => $name,
-        'ds_tag'   => $tag,
+        'ds_key'         => uniqid(),
+        'ds_title'       => $name,
+        'ds_tag'         => $tag,
         'tx_description' => $profileData['description'] ?? null,
       ]);
       Utils::printLn("     \033[92m✔ Created profile.\033[0m");
     } else {
-      // Update description if provided:
+      // Update description/tag if provided:
       $updData = [];
       if (!empty($profileData['description'])) $updData['tx_description'] = $profileData['description'];
       if ($tag && $profile->ds_tag !== $tag)   $updData['ds_tag'] = $tag;
@@ -263,159 +233,100 @@ class Setup extends Cli
       Utils::printLn("     \033[93m↺ Profile already exists, updating.\033[0m");
     }
 
-    $profileId = $profile->id_iam_accessprofile;
-
     // ------------------------------------------------------------------ //
-    // Apply regular permissions                                            //
-    // Each entry: { "ENTITY_NAME": "CRUD_STRING" }                        //
+    // Sync permission associations to the declared desired-state          //
     // ------------------------------------------------------------------ //
-    if (!empty($profileData['permissions']['regular'])) {
-      // Track which modules were already linked during this run to avoid
-      // calling addModule() twice for the same module. The DAO won't see
-      // the freshly-inserted row until a flush, so we deduplicate here.
-      $linkedModules    = [];
-      $configuredEntityIds = []; // track which entities are explicitly configured
+    if (array_key_exists('permissions', $profileData)) {
+      $desiredIds = $this->resolvePermissionIds($profileData['permissions']);
+      [$attached, $detached] = $this->syncProfilePermissions($profile->id_iam_accessprofile, $desiredIds);
 
-      if ($profileData['permissions']['regular'] === '*') {
-        foreach ($entityMap as $entityKey => $entity) {
-          $moduleId = $entity->id_mdc_module;
-          $entityId = $entity->id_mdc_module_entity;
-
-          $configuredEntityIds[] = $entityId;
-
-          if (!in_array($moduleId, $linkedModules)) {
-            $profileSvc->addModule($profileId, $moduleId);
-            Dao::flush();
-            $linkedModules[] = $moduleId;
-          }
-
-          $profileSvc->applyEntityPermissions($profileId, $entityId, "CRUD");
-        }
-        Utils::printLn("     \033[92m✔ All (*) regular permissions given.\033[0m");
-      } else {
-        foreach ($profileData['permissions']['regular'] as $permEntry) {
-          foreach ($permEntry as $entityName => $operations) {
-            $entityKey = strtoupper($entityName);
-
-            if (!isset($entityMap[$entityKey])) {
-              Utils::printLn("     \033[93m⚠ Entity '\033[34m{$entityName}\033[93m' not found in entity map. Skipping.\033[0m");
-              continue;
-            }
-
-            $entity   = $entityMap[$entityKey];
-            $moduleId = $entity->id_mdc_module;
-            $entityId = $entity->id_mdc_module_entity;
-
-            $configuredEntityIds[] = $entityId;
-
-            // Only call addModule() once per module per profile run:
-            if (!in_array($moduleId, $linkedModules)) {
-              $profileSvc->addModule($profileId, $moduleId);
-              // Flush so the permission rows inserted by addModule() are
-              // immediately visible to the SELECT inside applyEntityPermissions():
-              Dao::flush();
-              $linkedModules[] = $moduleId;
-            }
-
-            // Apply the specific CRUD flags for this entity:
-            $profileSvc->applyEntityPermissions($profileId, $entityId, $operations);
-
-            Utils::printLn("     \033[92m✔ Entity '\033[34m{$entityName}\033[92m' → \033[34m{$operations}\033[0m");
-          }
-        }
-      }
-
-      // Zero out permission rows for any entity that belongs to one of the
-      // linked modules but was NOT mentioned in the config:
-      if (!empty($configuredEntityIds)) {
-        $allProfilePerms = $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-          ->filter('profile_id')->equalsTo($profileId)
-          ->find(
-            "SELECT perm.id_iam_accessprofile_permission, perm.id_mdc_module_entity
-               FROM `IAM_ACCESSPROFILE_PERMISSION` perm
-               JOIN `IAM_ACCESSPROFILE_MODULE` apm ON apm.id_iam_accessprofile_module = perm.id_iam_accessprofile_module
-              WHERE apm.id_iam_accessprofile = ?profile_id?"
-          );
-
-        foreach ($allProfilePerms as $row) {
-          if (!in_array($row->id_mdc_module_entity, $configuredEntityIds)) {
-            $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-              ->filter('id_iam_accessprofile_permission')->equalsTo($row->id_iam_accessprofile_permission)
-              ->update([
-                'do_read'   => 'N',
-                'do_create' => 'N',
-                'do_update' => 'N',
-                'do_delete' => 'N',
-              ]);
-          }
-        }
-      }
-    }
-
-    // ------------------------------------------------------------------ //
-    // Apply custom permissions                                             //
-    // Each entry is a ds_key string of a IAM_CUSTOM_PERMISSION            //
-    // ------------------------------------------------------------------ //
-    if (!empty($profileData['permissions']['custom'])) {
-      if ($profileData['permissions']['custom'] === '*') {
-        $allCustomPerms = $this->getDao('IAM_CUSTOM_PERMISSION')->find("SELECT id_iam_custom_permission, ds_key FROM `IAM_CUSTOM_PERMISSION`");
-        foreach ($allCustomPerms as $cp) {
-          $alreadyLinked = $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')
-            ->filter('id_iam_accessprofile')->equalsTo($profileId)
-            ->and('id_iam_custom_permission')->equalsTo($cp->id_iam_custom_permission)
-            ->first(
-              "SELECT id_iam_accessprofile_custom_permission
-                 FROM `IAM_ACCESSPROFILE_CUSTOM_PERMISSION`
-                WHERE id_iam_accessprofile = ?id_iam_accessprofile?
-                  AND id_iam_custom_permission = ?id_iam_custom_permission?"
-            );
-
-          if (!$alreadyLinked) {
-            $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')->insert([
-              'id_iam_accessprofile'      => $profileId,
-              'id_iam_custom_permission'  => $cp->id_iam_custom_permission,
-            ]);
-          }
-        }
-        Utils::printLn("     \033[92m✔ All (*) custom permissions linked.\033[0m");
-      } else {
-        foreach ($profileData['permissions']['custom'] as $permKey) {
-          if (empty($permKey)) continue;
-
-          // Check if already linked:
-          $cp = $this->getDao('IAM_CUSTOM_PERMISSION')
-            ->filter('ds_key')->equalsTo($permKey)
-            ->first("SELECT id_iam_custom_permission FROM `IAM_CUSTOM_PERMISSION` WHERE ds_key = ?ds_key?");
-
-          if (!$cp) {
-            Utils::printLn("     \033[93m⚠ Custom permission '\033[34m{$permKey}\033[93m' not found. Skipping.\033[0m");
-            continue;
-          }
-
-          $alreadyLinked = $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')
-            ->filter('id_iam_accessprofile')->equalsTo($profileId)
-            ->and('id_iam_custom_permission')->equalsTo($cp->id_iam_custom_permission)
-            ->first(
-              "SELECT id_iam_accessprofile_custom_permission
-                 FROM `IAM_ACCESSPROFILE_CUSTOM_PERMISSION`
-                WHERE id_iam_accessprofile = ?id_iam_accessprofile?
-                  AND id_iam_custom_permission = ?id_iam_custom_permission?"
-            );
-
-          if (!$alreadyLinked) {
-            $this->getDao('IAM_ACCESSPROFILE_CUSTOM_PERMISSION')->insert([
-              'id_iam_accessprofile'      => $profileId,
-              'id_iam_custom_permission'  => $cp->id_iam_custom_permission,
-            ]);
-          }
-          Utils::printLn("     \033[92m✔ Custom permission '\033[34m{$permKey}\033[92m' linked.\033[0m");
-        }
-      }
+      Utils::printLn("     \033[92m✔ Permissions synced → \033[34m" . count($desiredIds) . "\033[92m associated"
+        . " (\033[34m+{$attached}\033[92m / \033[34m-{$detached}\033[92m).\033[0m");
     }
   }
 
   /**
-   * Upsert a user and link it to the specified access profiles by tag.
+   * Resolve a profile's "permissions" spec (array of tags, or "*") into a list
+   * of IAM_PERMISSION ids. Unknown tags are reported and skipped.
+   */
+  private function resolvePermissionIds($spec): array
+  {
+    // "*" → every known permission:
+    if ($spec === '*') {
+      $ids = [];
+      $this->getDao('IAM_PERMISSION')->fetch(function ($row) use (&$ids) {
+        $ids[] = $row->id_iam_permission;
+      }, "SELECT id_iam_permission FROM `IAM_PERMISSION`");
+      return $ids;
+    }
+
+    if (!is_array($spec)) return [];
+
+    $ids = [];
+    foreach ($spec as $permTag) {
+      if (empty($permTag)) continue;
+
+      $prm = $this->getDao('IAM_PERMISSION')
+        ->filter('ds_tag')->equalsTo($permTag)
+        ->first("SELECT id_iam_permission FROM `IAM_PERMISSION` WHERE ds_tag = ?ds_tag?");
+
+      if (!$prm) {
+        Utils::printLn("     \033[93m⚠ Permission '\033[34m{$permTag}\033[93m' not found. Skipping.\033[0m");
+        continue;
+      }
+
+      $ids[] = $prm->id_iam_permission;
+    }
+
+    return $ids;
+  }
+
+  /**
+   * Make a profile's IAM_ACCESSPROFILE_PERMISSION associations match $desiredIds
+   * exactly: attach missing ones, detach extras. Returns [attachedCount, detachedCount].
+   */
+  private function syncProfilePermissions(int $profileId, array $desiredIds): array
+  {
+    // Current associations (permission id → bridge id):
+    $current = [];
+    $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
+      ->filter('id_iam_accessprofile')->equalsTo($profileId)
+      ->fetch(function ($row) use (&$current) {
+        $current[$row->id_iam_permission] = $row->id_iam_accessprofile_permission;
+      }, "SELECT id_iam_accessprofile_permission, id_iam_permission
+            FROM `IAM_ACCESSPROFILE_PERMISSION`
+           WHERE id_iam_accessprofile = ?id_iam_accessprofile?");
+
+    $attached = 0;
+    $detached = 0;
+
+    // Attach missing:
+    foreach ($desiredIds as $permId) {
+      if (!isset($current[$permId])) {
+        $this->getDao('IAM_ACCESSPROFILE_PERMISSION')->insert([
+          'id_iam_accessprofile' => $profileId,
+          'id_iam_permission'    => $permId,
+        ]);
+        $attached++;
+      }
+    }
+
+    // Detach extras (declarative desired-state):
+    $desiredSet = array_flip($desiredIds);
+    foreach ($current as $permId => $bridgeId) {
+      if (!isset($desiredSet[$permId])) {
+        $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
+          ->filter('id_iam_accessprofile_permission')->equalsTo($bridgeId)
+          ->delete();
+        $detached++;
+      }
+    }
+
+    return [$attached, $detached];
+  }
+
+  /**
+   * Upsert a user and link it to the specified access profiles and teams by tag.
    */
   private function processUser(array $userData): void
   {

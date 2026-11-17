@@ -29,20 +29,13 @@ class UserCreated extends Event
   private object $user;
 
   /**
-   * @var array $profileTags The access-profile tags the user is being created with.
-   */
-  private array $profileTags;
-
-  /**
    * UserCreated constructor.
    *
    * @param object $user        The IAM_USER record that was created.
-   * @param array  $profileTags The access-profile tags (ds_tag) the user will be attached to.
    */
-  public function __construct(object $user, array $profileTags = [])
+  public function __construct(object $user)
   {
     $this->user = $user;
-    $this->profileTags = $profileTags;
   }
 
   /**
@@ -53,8 +46,7 @@ class UserCreated extends Event
   public function __toString(): string
   {
     return 'Event: ' . self::EVENT_NAME
-      . ' (user: ' . ($this->user->id_iam_user ?? '?')
-      . ', profileTags: ' . json_encode($this->profileTags) . ')';
+      . ' (user: ' . ($this->user->id_iam_user ?? '?');
   }
 
   /**
@@ -66,7 +58,6 @@ class UserCreated extends Event
   {
     return (object) [
       'user'        => $this->user,
-      'profileTags' => $this->profileTags,
     ];
   }
 }

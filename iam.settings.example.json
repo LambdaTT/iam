@@ -1,0 +1,58 @@
+{
+  "permissions": [
+    { "tag": "users.manage",   "title": "Manage Users" },
+    { "tag": "users.read",     "title": "Read Users" },
+    { "tag": "profiles.manage", "title": "Manage Access Profiles" },
+    { "tag": "orders.manage",  "title": "Manage Orders" },
+    { "tag": "orders.read",    "title": "Read Orders" }
+  ],
+
+  "teams": [
+    { "tag": "ops",   "name": "Operations", "description": "Back-office operations team." },
+    { "tag": "sales", "name": "Sales",      "description": "Sales team." }
+  ],
+
+  "accessprofiles": [
+    {
+      "tag": "root",
+      "name": "Root",
+      "description": "Full access to every permission.",
+      "permissions": "*"
+    },
+    {
+      "tag": "manager",
+      "name": "Manager",
+      "description": "Manages users and orders.",
+      "permissions": ["users.manage", "users.read", "orders.manage", "orders.read"]
+    },
+    {
+      "tag": "clerk",
+      "name": "Clerk",
+      "description": "Read-only access to orders.",
+      "permissions": ["orders.read"]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "root",
+      "email": "root@example.com",
+      "first_name": "Root",
+      "last_name": "Admin",
+      "password": "generate(sha256, uniqid)",
+      "hidden": "N",
+      "multi_session": "Y",
+      "accessprofile_tags": ["root"],
+      "team_tags": ["ops"]
+    },
+    {
+      "username": "jane.doe",
+      "email": "jane.doe@example.com",
+      "first_name": "Jane",
+      "last_name": "Doe",
+      "password": "ChangeMe!123",
+      "accessprofile_tags": ["manager"],
+      "team_tags": ["ops", "sales"]
+    }
+  ]
+}

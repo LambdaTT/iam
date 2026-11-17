@@ -2,7 +2,6 @@
 
 namespace Iam\Commands;
 
-use Exception;
 use SplitPHP\Cli;
 use SplitPHP\Utils;
 
@@ -156,53 +155,15 @@ class Users extends Cli
       Utils::printLn("  >> User with ID {$userId} removed successfully!");
     });
 
-    $this->addCommand('set:access-profiles', function ($args) {
-      if (in_array('--remove', $args)) {
-        $remove = true;
-        unset($args['--remove']);
-      }
-
-      Utils::printLn("Welcome to the Iam User Set Access Profiles Command!");
-      Utils::printLn("This command will help you set access profiles for a user in the IAM system.");
+    $this->addCommand('set:access-profile', function ($args) {
+      Utils::printLn("Welcome to the Iam User Set Access Profile Command!");
+      Utils::printLn("This command will help you set access profiles for an existing user in the IAM system.");
       Utils::printLn();
-      Utils::printLn(" >> Please follow the prompts to define the user and set its access profiles.");
-      Utils::printLn();
-      Utils::printLn("  >> Set Access Profiles:");
-      Utils::printLn("------------------------------------------------------");
-
-      $userId = readline("    -> Enter User ID: ");
-      $profileIds = explode(',', readline("    -> Enter Access Profile IDs (separated by comma): "));
+      Utils::printLn(" >> Please follow the prompts to set your user's access profile.");
       Utils::printLn();
 
-      $profileIds = array_map('trim', $profileIds);
-
-      if ($remove) {
-        Utils::printLn("  >> Removing access profiles for user ID {$userId}...");
-        $this->getDao('IAM_ACCESSPROFILE_USER')
-          ->filter('id_iam_user')->equalsTo($userId)
-          ->and('id_iam_accessprofile')->in($profileIds)
-          ->delete();
-
-        Utils::printLn("  >> Access profiles removed successfully for user ID {$userId}!");
-        return;
-      }
-
-      Utils::printLn("  >> Setting access profiles for user ID {$userId}...");
-      $profiles = $this->getDao('IAM_ACCESSPROFILE')
-        ->filter('id_iam_accessprofile')->in($profileIds)
-        ->find();
-
-      if (empty($profiles)) {
-        throw new Exception("No valid access profiles found for the provided IDs.");
-        return;
-      }
-
-      $this->getService('iam/user')->updUserProfiles($userId, $profiles);
-
-      Utils::printLn("  >> Access profiles set successfully for user ID {$userId}!");
-      foreach ($profiles as $profile) {
-        Utils::printLn("    -> {$profile->ds_title} (ID: {$profile->id_iam_accessprofile})");
-      }
+      $user = $this->setUser($args);
+      $this->setProfile($user, $args);
     });
 
     $this->addCommand('help', function () {
@@ -242,7 +203,9 @@ class Users extends Cli
           'usage' => 'iam:users:set:access-profiles [--remove]',
           'desc'  => 'Add or remove access profiles for a user.',
           'flags' => [
-            '--remove'      => 'Whether to remove the access profiles instead of adding them',
+            '--user=<user_id>'                => 'ID of the user',
+            '--profile=<profile_id>'          => 'ID of the access profile',
+            '--remove'                        => 'Whether to remove the access profiles instead of adding them',
           ]
         ],
         'users:help'             => [
@@ -308,7 +271,7 @@ class Users extends Cli
     });
   }
 
-  private function setUserAvatar(&$user)
+  private function setUserAvatar(object &$user)
   {
     $setAvatar = readline("  >> Would you like to set an avatar for this user? (y/n): ");
 
@@ -328,5 +291,58 @@ class Users extends Cli
         'path'  => $userAvatarUrl,
       ];
     }
+  }
+
+  private function setUser(array $args = []): object
+  {
+    // Extract and normalize our options
+    if (isset($args['--user'])) {
+      $userId = $args['--user'];
+    } else {
+      Utils::printLn("  >> Please, enter the User ID: ");
+      $userId = $this->getService('utils/misc')->persistentCliInput(
+        fn($v) => !empty($v) && is_string($v),
+        "User ID must be an integer and cannot be empty or zero. Please try again:"
+      );
+    }
+
+    $user = $this->getService('iam/user')->get(['id_iam_user' => $userId]);
+    if (empty($user)) {
+      Utils::printLn("  >> User with ID '{$userId}' does not exist. Please try again.");
+      return $this->setUser($args);
+    }
+
+    return $user;
+  }
+
+  private function setProfile(object $user, array $args = []): void
+  {
+    $remove = isset($args['--remove']) || isset($args['-r']);
+
+    // Extract and normalize our options
+    if (isset($args['--profile'])) {
+      $profileId = $args['--profile'];
+    } else {
+      Utils::printLn("  >> Please, enter the Profile ID: ");
+      $profileId = $this->getService('utils/misc')->persistentCliInput(
+        fn($v) => !empty($v) && is_string($v),
+        "Profile ID must be an integer and cannot be empty or zero. Please try again:"
+      );
+    }
+
+    $profile = $this->getService('iam/accessprofile')->get(['id_iam_accessprofile' => $profileId]);
+    if (empty($profile)) {
+      Utils::printLn("  >> No profile with the ID '{$profileId}' could be found. Please try again.");
+      $this->setProfile($user, $args);
+      return;
+    }
+
+    $prfFilter = ['ds_key' => $profile->ds_key];
+    $usrFilter = ['ds_key' => $user->ds_key];
+
+    if ($remove)
+      $this->getService('iam/accessprofile')->detachFromUser($prfFilter, $usrFilter);
+    else
+      $this->getService('iam/accessprofile')->attachToUser($prfFilter, $usrFilter);
   }
 }

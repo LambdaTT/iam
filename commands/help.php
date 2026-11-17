@@ -32,7 +32,7 @@ class Help extends Cli
             'iam:users:create              — Interactively create a new user',
             'iam:users:generate:superadmin — Generate a new superadmin user',
             'iam:users:remove              — Delete a user by its ID',
-            'iam:users:set:access-profiles — Add or remove access profiles for a user',
+            'iam:users:set:access-profile  — Add or remove access profiles for a user',
           ],
         ],
         'accessprofiles' => [

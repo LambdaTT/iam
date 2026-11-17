@@ -1,0 +1,73 @@
+🔐 LambdaTT IAM - Release Notes
+---
+
+📦 Version: 1.3.0
+📅 Release Date: 2026-11-17
+📄 License: MIT
+👤 Authors:
+  - Gabriel Valentoni Guelfi (https://github.com/gabriel-guelfi)
+
+---
+
+💬 Commentaries:
+
+This release simplifies the entire permissions domain. The old module/entity + CRUD permission
+model (and the parallel "custom permissions") has been replaced by a single, flat, tag-based
+permission model. A permission is now just a unique tag with a human-readable title, access
+profiles are associated directly with permissions, and authorization is a single tag check.
+This removes the IAM dependency on the module-control domain and makes permissions far easier
+to declare, seed and reason about.
+
+---
+
+✨ New Features:
+
+    ▸ New flat permission entity: `IAM_PERMISSION` (unique `ds_tag` + `ds_title`).
+
+    ▸ `iam/permission->canExecute(string|array $tags)` — single tag-based authorization check,
+      with super-admin short-circuit.
+
+    ▸ `iam/permission->associate()` / `->disassociate()` — attach/detach a permission to an
+      access profile by tag.
+
+    ▸ `iam/accessprofile->listPermissions()`, `->attachToUser()`, `->detachFromUser()` and
+      `iam/user->listProfiles()`, `->listPermissions()`.
+
+    ▸ New endpoint `GET /v1/logged/permissions` returning the logged user's effective permissions.
+
+    ▸ Setup command re-written around a new, declarative JSON schema. A documented example ships
+      as `iam.settings.example.json`. See the README for the full schema.
+
+---
+
+🔧 Changes:
+
+    ▸ `iam:accessprofiles:set:permission` now associates a known permission (by tag) to a profile,
+      with a `--remove` flag to detach. `iam:users:set:access-profile` attaches/detaches a profile.
+
+    ▸ Access-profile permission seeding is now a declarative desired-state sync (attach missing,
+      detach extras).
+
+    ▸ README updated with the permission-domain overview and settings-file schema.
+
+---
+
+⚠️ Breaking Changes:
+
+    ▸ Removed the module/entity + CRUD permission model and the custom-permission model, along with
+      their tables (`IAM_ACCESSPROFILE_MODULE`, `IAM_CUSTOM_PERMISSION`,
+      `IAM_ACCESSPROFILE_CUSTOM_PERMISSION`) and the previous `IAM_ACCESSPROFILE_PERMISSION` shape.
+      Run the new migrations to move to the flat schema.
+
+    ▸ `iam/permission->validatePermissions([...])` (entity ⇒ CRUD) was removed. Replace call sites
+      with `canExecute('<tag>')`. Consuming modules must migrate their authorization checks.
+
+    ▸ Removed service methods: `getModules`, `addModule`, `removeModule`, `updProfileModules`,
+      `applyEntityPermissions`, `permissionsByModule`, `createExecPermission`, `updPermission`,
+      `relateCustomPermission`, `customPermissionRemoveRelation`, `hasAccessToModules`,
+      `updUserProfiles`, `userProfiles`, `addProfileByTag`, `attachAccessProfile`.
+
+    ▸ Setup settings file: `customPermissions` ⇒ `permissions` (`{tag, title}`); a profile's
+      `permissions.regular` / `permissions.custom` ⇒ a single `permissions` array of tags (or `"*"`).
+
+---

@@ -4,7 +4,6 @@ namespace Iam\Commands;
 
 use SplitPHP\Cli;
 use SplitPHP\Utils;
-use stdClass;
 
 class Accessprofiles extends Cli
 {
@@ -69,15 +68,15 @@ class Accessprofiles extends Cli
       Utils::printLn("  >> Access Profile with ID {$profileId} removed successfully!");
     });
 
-    $this->addCommand('set:permissions', function () {
+    $this->addCommand('set:permission', function ($args) {
       Utils::printLn("Welcome to the Iam Access Profile Set Permissions Command!");
       Utils::printLn("This command will help you set permissions for an existing access profile in the IAM system.");
       Utils::printLn();
       Utils::printLn(" >> Please follow the prompts to set your access profile permissions.");
       Utils::printLn();
 
-      $profile = $this->setProfile();
-      $this->setPermissions($profile);
+      $profile = $this->setProfile($args);
+      $this->setPermissions($profile, $args);
     });
 
     // Help command
@@ -106,12 +105,13 @@ class Accessprofiles extends Cli
           'usage' => 'iam:accessprofiles:remove',
           'desc'  => 'Delete an access profile by its ID.',
         ],
-        ':accessprofiles:set:permissions' => [
-          'usage' => 'iam:accessprofiles:set:permissions',
-          'desc'  => 'Interactively set the permissions for a given access profile.',
+        ':accessprofiles:set:permission' => [
+          'usage' => 'iam:accessprofiles:set:permission [--remove]',
+          'desc'  => 'Associate a known permission with a an access profile.',
           'flags' => [
             '--profile=<profile_id>'          => 'ID of the access profile',
-            '--module=<module_name>'           => 'Name of the module to set permissions for',
+            '--permission=<permission_tag>'   => 'Tag of a known permission',
+            '--remove / -r'                   => 'Remove the permission association instead of adding it.',
           ],
         ],
         ':accessprofiles:help'             => [
@@ -142,7 +142,7 @@ class Accessprofiles extends Cli
         [
           'cmd'  => 'iam:accessprofiles:set:permissions',
           'desc' => 'Interactively set the permissions for a given access profile',
-          'opts' => '--profile, --module',
+          'opts' => '--profile',
         ],
         [
           'cmd'  => 'iam:accessprofiles:help',
@@ -177,7 +177,7 @@ class Accessprofiles extends Cli
     });
   }
 
-  private function setProfile(array $args = []): stdClass
+  private function setProfile(array $args = []): object
   {
     // Extract and normalize our options
     if (isset($args['--profile'])) {
@@ -185,9 +185,7 @@ class Accessprofiles extends Cli
     } else {
       Utils::printLn("  >> Please, enter the Profile ID: ");
       $profileId = $this->getService('utils/misc')->persistentCliInput(
-        function ($v) {
-          return !empty($v) && is_string($v);
-        },
+        fn($v) => !empty($v) && is_string($v),
         "Profile ID must be an integer and cannot be empty or zero. Please try again:"
       );
     }
@@ -201,80 +199,32 @@ class Accessprofiles extends Cli
     return $profile;
   }
 
-  private function setModule(array $args = []): stdClass
+  private function setPermissions(object $profile, array $args = []): void
   {
+    $remove = isset($args['--remove']) || isset($args['-r']);
+
     // Extract and normalize our options
-    if (isset($args['--module'])) {
-      $moduleName = $args['--module'];
+    if (isset($args['--permission'])) {
+      $permissionTag = $args['--permission'];
     } else {
-      Utils::printLn("  >> Please, enter the Module Name: ");
-      $moduleName = $this->getService('utils/misc')->persistentCliInput(
-        function ($v) {
-          return !empty($v) && is_string($v);
-        },
-        "Module name must be a string and cannot be empty. Please try again:"
+      Utils::printLn("  >> Please, enter the Permission tag: ");
+      $permissionTag = $this->getService('utils/misc')->persistentCliInput(
+        fn($v) => !empty($v) && is_string($v),
+        "Permission tag must be a non-empty string. Please try again:"
       );
     }
 
-    $moduleName = strtolower($moduleName);
-    $module = $this->getService('modcontrol/control')->get(['ds_title' => $moduleName]);
-    if (empty($module)) {
-      Utils::printLn("  >> Module '{$moduleName}' does not exist. Please try again.");
-      return $this->setModule($args);
+    $permission = $this->getService('iam/permission')->get(['ds_tag' => $permissionTag]);
+    if (empty($permission)) {
+      Utils::printLn("  >> There's no permission marked with the tag '{$permissionTag}'. Please try again.");
+      $this->setPermissions($profile, $args);
+      return;
     }
 
-    return $module;
-  }
-
-  private function setPermissions($profile)
-  {
-    while (true) {
-      $module = $this->setModule();
-      Utils::printLn("  >> Granting access to module '{$module->ds_title}' for profile '{$profile->ds_title}'...");
-      $prfMod = $this->getDao('IAM_ACCESSPROFILE_MODULE')
-        ->insert([
-          'id_iam_accessprofile' => $profile->id_iam_accessprofile,
-          'id_mdc_module'        => $module->id_mdc_module,
-        ]);
-      Utils::printLn("  >> Access to module '{$module->ds_title}' for profile '{$profile->ds_title}' granted successfully.");
-      Utils::printLn();
-
-      Utils::printLn("  >> Now, let's set permissions for each entity in the module '{$module->ds_title}'...");
-      Utils::printLn("  >> You will be prompted to set CREATE, READ, UPDATE, and DELETE permissions for each entity in the module.");
-      $onlyNOrY = function ($input) {
-        return in_array(strtoupper($input), ['Y', 'N']);
-      };
-      $modEntities = $this->getService('modcontrol/control')->getModuleEntities(modParams: ['id_mdc_module' => $module->id_mdc_module]);
-      foreach ($modEntities as $entity) {
-        Utils::printLn("  >> Setting permissions for module entity: {$entity->ds_entity_name} ({$entity->ds_entity_label}):");
-        Utils::printLn("    -> Set the CREATE permission for this entity? (y/n): ");
-        $c = strtoupper($this->getService('utils/misc')->persistentCliInput($onlyNOrY, "  >> You can only answer with 'Y' or 'N'. Please try again: "));
-        Utils::printLn("    -> Set the READ permission for this entity? (y/n): ");
-        $r = strtoupper($this->getService('utils/misc')->persistentCliInput($onlyNOrY, "  >> You can only answer with 'Y' or 'N'. Please try again: "));
-        Utils::printLn("    -> Set the UPDATE permission for this entity? (y/n): ");
-        $u = strtoupper($this->getService('utils/misc')->persistentCliInput($onlyNOrY, "  >> You can only answer with 'Y' or 'N'. Please try again: "));
-        Utils::printLn("    -> Set the DELETE permission for this entity? (y/n): ");
-        $d = strtoupper($this->getService('utils/misc')->persistentCliInput($onlyNOrY, "  >> You can only answer with 'Y' or 'N'. Please try again: "));
-
-        $this->getDao('IAM_ACCESSPROFILE_PERMISSION')
-          ->insert([
-            'ds_key'                      => 'prm-' . uniqid(),
-            'id_iam_accessprofile_module' => $prfMod->id_iam_accessprofile_module,
-            'id_mdc_module_entity'        => $entity->id_mdc_module_entity,
-            'do_create'                   => $c,
-            'do_read'                     => $r,
-            'do_update'                   => $u,
-            'do_delete'                   => $d,
-          ]);
-        Utils::printLn("  >> Permissions of '{$entity->ds_entity_name}' successfully set for profile '{$profile->ds_title}'.");
-        Utils::printLn();
-      }
-
-      $repeat = (strtoupper(readline("  >> Would you like to set permissions for another module? (Y/N): ")) == 'Y');
-      if (!$repeat) break;
-    }
-
-    Utils::printLn("  >> Permissions setup completed for profile '{$profile->ds_title}'.");
+    if($remove)
+      $this->getService('iam/permission')->disassociate($profile->ds_key, $permissionTag);
+    else
+      $this->getService('iam/permission')->associate($profile->ds_key, $permissionTag);
   }
 }
 // EOF

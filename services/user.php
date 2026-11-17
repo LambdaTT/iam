@@ -38,12 +38,20 @@ use SplitPHP\Exceptions\NotFound;
 
 class User extends Service
 {
+  private const USER_TABLE = 'IAM_USER';
+  private const PRFBRIDGE_TABLE = 'IAM_ACCESSPROFILE_USER';
+  private const PROFILE_TABLE = 'IAM_ACCESSPROFILE';
+  private const PERMISSION_TABLE = 'IAM_PERMISSION';
+  private const PRMBRIDGE_TABLE = 'IAM_ACCESSPROFILE_PERMISSION';
+
   private int $pswdLvl = 0; // Password level, default is 0 (no requirements)
 
   public function __construct()
   {
     if (!defined('RESETPASS_URL'))
       define('RESETPASS_URL', getenv('RESETPASS_URL'));
+
+    $this->pswdLvl = getenv('IAM_PASSWORD_LVL') ?? 0;
   }
 
   public function setPswdLvl(int $pswdLvl)
@@ -54,12 +62,12 @@ class User extends Service
   }
 
   // Get a list of registered users, based on parameters.
-  public function list($params, $listAdmin = false)
+  public function list($params = [], $listAdmin = false, $listHidden = false)
   {
-    if (!$listAdmin) {
-      $params['do_is_superadmin'] = 'N';
-    }
-    return $this->getDao('IAM_USER')
+    if (!$listAdmin) $params['do_is_superadmin'] = 'N';
+    if (!$listHidden) $params['do_hidden'] = 'N';
+    
+    return $this->getDao(self::USER_TABLE)
       ->bindParams($params)
       ->find(
         "SELECT
@@ -85,7 +93,7 @@ class User extends Service
   // Get a single user data, based on parameters. If no user is found, returns null.
   public function get($params = [])
   {
-    $user = $this->getDao('IAM_USER')
+    return $this->getDao(self::USER_TABLE)
       ->bindParams($params)
       ->first(
         "SELECT 
@@ -102,45 +110,62 @@ class User extends Service
             LEFT JOIN `FMN_FILE` fle ON (fle.id_fmn_file = usr.id_fmn_file_avatar)
             "
       );
+  }
 
-    if (!empty($user)) {
-      $userProfiles = $this->getDao('IAM_ACCESSPROFILE_USER')
-        ->filter('userId')->equalsTo($user->id_iam_user)
-        ->find(
-          "SELECT 
-              prf.ds_key 
-            FROM `IAM_ACCESSPROFILE_USER` rel 
-            JOIN `IAM_ACCESSPROFILE` prf ON (prf.id_iam_accessprofile = rel.id_iam_accessprofile)
-            WHERE rel.id_iam_user = ?userId? "
-        );
-      $user->selected_profiles = [];
-      foreach ($userProfiles as $prf) {
-        $user->selected_profiles[] = $prf->ds_key;
-      }
-    }
+  public function requireId(array $usrFilters = []): int
+  {
+    if(empty($usrId = $this->get($usrFilters)?->id_iam_user))
+      throw new NotFound("O usuário solicitado não foi encontrado.");
 
-    return $user;
+    return $usrId;
+  }
+
+  public function listProfiles($usrFilters = []): array
+  {
+    $usrId = $this->requireId($usrFilters);
+
+    $prfBridgeTbName = self::PRFBRIDGE_TABLE;
+    $profileTbName = self::PROFILE_TABLE;
+    return $this->getDao($prfBridgeTbName)
+      ->filter('usrId')->equalsTo($usrId)
+      ->find(
+        "SELECT 
+          prf.*,
+          (CASE
+            WHEN assoc.id_iam_accessprofile_user IS NOT NULL THEN 'Y'
+            ELSE 'N'
+           END) AS attached
+        FROM `$prfBridgeTbName` assoc
+        JOIN `$profileTbName` prf
+        ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
+        WHERE assoc.id_iam_user = ?usrId?"
+      );
+  }
+
+  public function listPermissions($usrFilters = []): array
+  {
+    $usrId = $this->requireId($usrFilters);
+
+    $prfBridgeTbName = self::PRFBRIDGE_TABLE;
+    $prmBridgeTbName = self::PRMBRIDGE_TABLE;
+    $prmTbName = self::PERMISSION_TABLE;
+    return $this->getDao($prfBridgeTbName)
+      ->filter('userId')->equalsTo($usrId)
+      ->find(
+        "SELECT DISTINCT 
+            prm.*
+          FROM `$prfBridgeTbName` prf
+          JOIN `$prmBridgeTbName` assoc 
+          ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
+          JOIN `$prmTbName` prm
+          ON assoc.id_iam_permission = prm.id_iam_permission
+          WHERE prf.id_iam_user = ?userId?"
+      );
   }
 
   // Creates a new user register.
   public function create(&$data)
   {
-    // Resolve the access-profile TAGS the user is being created with, BEFORE the field is
-    // stripped below. The front-end sends `selected_profiles` as profile KEYS (ds_key); these
-    // profiles are attached by the caller RIGHT AFTER create() returns, so they are not in the
-    // database yet at dispatch time — the 'iam.user.created' listener decides from these tags,
-    // not from the DB.
-    $profileTags = [];
-    if (!empty($data['selected_profiles'])) {
-      $keys = is_array($data['selected_profiles'])
-        ? $data['selected_profiles']
-        : (json_decode($data['selected_profiles'], true) ?: []);
-      foreach ($keys as $k) {
-        $prf = $this->getService('iam/accessprofile')->get(['ds_key' => $k]);
-        if (!empty($prf)) $profileTags[] = $prf->ds_tag;
-      }
-    }
-
     // Validates new user email and password:
     $this->validateEmail($data);
     $this->validatePassword($data['ds_password']);
@@ -173,14 +198,14 @@ class User extends Service
     $usrdata['ds_password'] = password_hash($usrdata['ds_password'], PASSWORD_DEFAULT);
 
     $this->removeUserData($data);
-    $newUser = $this->getDao('IAM_USER')->insert($usrdata);
+    $newUser = $this->getDao(self::USER_TABLE)->insert($usrdata);
 
     // Notify the rest of the application that a user was created (e.g. to enroll managers into
     // the notification team). Carries the intended profile tags — see above.
     EventDispatcher::dispatch(
       fn() => true,
       'iam.user.created',
-      [$newUser, $profileTags]
+      [$newUser]
     );
 
     return $newUser;
@@ -244,7 +269,7 @@ class User extends Service
 
     $this->removeUserData($data);
 
-    return $this->getDao('IAM_USER')
+    return $this->getDao(self::USER_TABLE)
       ->filter('id_iam_user')->equalsTo($usr->id_iam_user)
       ->update($usrdata);
   }
@@ -262,39 +287,9 @@ class User extends Service
     }
 
     // Deletes user's data from the database.
-    return $this->getDao('IAM_USER')
+    return $this->getDao(self::USER_TABLE)
       ->filter('id_iam_user')->equalsTo($usr->id_iam_user)
       ->delete();
-  }
-
-  // List all profiles attached to an user identified by its unique key.
-  public function userProfiles($userKey)
-  {
-    return $this->getDao('IAM_ACCESSPROFILE')
-      ->filter('user_key')->equalsTo($userKey)
-      ->find('iam/userprofiles');
-  }
-
-  // Updates user's profiles setup
-  public function updUserProfiles(int $userId, array $profiles)
-  {
-    // Clear user profiles setup:
-    $this->getDao('IAM_ACCESSPROFILE_USER')
-      ->filter('id_iam_user')->equalsTo($userId)
-      ->delete();
-
-    $results = [];
-    // Re-create user's profiles setup.
-    foreach ($profiles as $prfKey) {
-      $prf = $this->getService('iam/accessprofile')->get(['ds_key' => $prfKey]);
-
-      $results[] = $this->getDao('IAM_ACCESSPROFILE_USER')->insert([
-        'id_iam_user' => $userId,
-        'id_iam_accessprofile' => $prf->id_iam_accessprofile
-      ]);
-    }
-
-    return $results;
   }
 
   // Sends a "change password" e-mail to the user identified by its e-mail address.
@@ -324,24 +319,6 @@ class User extends Service
     return $token;
   }
 
-  public function addProfileByTag($tag, $userId)
-  {
-    $prf = $this->getService('iam/accessprofile')->get(['ds_tag' => $tag]);
-    if (empty($prf)) throw new NotFound("O perfil não foi encontrado.");
-
-    $association = $this->getDao('IAM_ACCESSPROFILE_USER')
-      ->filter('id_iam_user')->equalsTo($userId)
-      ->filter('id_iam_accessprofile')->equalsTo($prf->id_iam_accessprofile)
-      ->first("SELECT id_iam_accessprofile_user FROM `IAM_ACCESSPROFILE_USER` WHERE id_iam_user = ?id_iam_user? AND id_iam_accessprofile = ?id_iam_accessprofile?");
-    if (!empty($association)) return $association;
-
-    return $this->getDao('IAM_ACCESSPROFILE_USER')
-      ->insert([
-        'id_iam_user' => $userId,
-        'id_iam_accessprofile' => $prf->id_iam_accessprofile
-      ]);
-  }
-
   /**
    * Validates the e-mail address of a user.
    * @param array $data The data containing the e-mail address to validate.
@@ -358,7 +335,7 @@ class User extends Service
 
     // Check if there is another user registered with the same e-mail address.
     $sql = "SELECT id_iam_user FROM `IAM_USER` WHERE ds_email = ?ds_email? ";
-    $dbData = $this->getDao('IAM_USER')
+    $dbData = $this->getDao(self::USER_TABLE)
       ->filter('ds_email')->equalsTo($data['ds_email']);
 
     if (!empty($userId)) {
@@ -416,7 +393,7 @@ class User extends Service
   public function filterUserData(&$data)
   {
     require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
-    $tbInfo = Dbmetadata::tbInfo('IAM_USER');
+    $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
 
     $data = $this->getService('utils/misc')->dataWhiteList($data, array_map(function ($c) {
       return $c['Field'];
@@ -433,7 +410,7 @@ class User extends Service
   public function removeUserData(&$data)
   {
     require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
-    $tbInfo = Dbmetadata::tbInfo('IAM_USER');
+    $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
 
     $filter = [
       ...array_map(function ($c) {
@@ -465,23 +442,5 @@ class User extends Service
       'do_hidden',
     ];
     return !empty(array_intersect_key(array_flip($userFields), $data));
-  }
-
-  public function attachAccessProfile($userParams, $profileParams)
-  {
-    $users = $this->list($userParams);
-    $profiles = $this->getService('iam/accessprofile')->list($profileParams);
-    $results = [];
-
-    foreach ($users as $usr) {
-      foreach ($profiles as $prf) {
-        $results[] = $this->getDao('IAM_ACCESSPROFILE_USER')->insert([
-          'id_iam_user' => $usr->id_iam_user,
-          'id_iam_accessprofile' => $prf->id_iam_accessprofile
-        ]);
-      }
-    }
-
-    return $results;
   }
 }
