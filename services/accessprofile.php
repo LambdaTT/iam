@@ -100,7 +100,7 @@ class Accessprofile extends Service
         FROM `$prmBridgeTbName` assoc
         RIGHT JOIN `$permissionTbName` prm
         ON prm.id_iam_permission = assoc.id_iam_permission
-        WHERE assoc.id_iam_accessprofile = ?prfId?"
+        AND assoc.id_iam_accessprofile = ?prfId?"
       );
   }
 

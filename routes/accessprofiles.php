@@ -119,7 +119,7 @@ class Accessprofiles extends WebService
         'ds_key' => $profileKey
       ];
 
-      $data = $this->getService('iam/permission')->listPermissions($params);
+      $data = $this->getService('iam/accessprofile')->listPermissions($params);
 
       return $this->response->withData($data);
     });
@@ -136,6 +136,19 @@ class Accessprofiles extends WebService
       return $this->response
         ->withStatus(201)
         ->withData($association);
+    });
+
+    $this->addEndpoint('DELETE', '/v1/permission/?profileKey?/?permissionTag?', function ($profileKey, $permissionTag) {
+      // Auth user login:
+      if (!$this->getService('iam/session')->authenticate())
+        return $this->response->withStatus(401);
+
+      // Validate user permissions:
+
+      $deletedRows = $this->getService('iam/permission')->disassociate($profileKey, $permissionTag);
+      if ($deletedRows < 1) return $this->response->withStatus(404);
+
+      return $this->response->withStatus(204);
     });
   }
 }
