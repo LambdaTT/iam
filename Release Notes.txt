@@ -24,7 +24,7 @@ to declare, seed and reason about.
 
     ▸ New flat permission entity: `IAM_PERMISSION` (unique `ds_tag` + `ds_title`).
 
-    ▸ `iam/permission->canExecute(string|array $tags)` — single tag-based authorization check,
+    ▸ `iam/permission->requireAny(string|array $tags)` — single tag-based authorization check,
       with super-admin short-circuit.
 
     ▸ `iam/permission->associate()` / `->disassociate()` — attach/detach a permission to an
@@ -60,7 +60,7 @@ to declare, seed and reason about.
       Run the new migrations to move to the flat schema.
 
     ▸ `iam/permission->validatePermissions([...])` (entity ⇒ CRUD) was removed. Replace call sites
-      with `canExecute('<tag>')`. Consuming modules must migrate their authorization checks.
+      with `requireAny('<tag>')`. Consuming modules must migrate their authorization checks.
 
     ▸ Removed service methods: `getModules`, `addModule`, `removeModule`, `updProfileModules`,
       `applyEntityPermissions`, `permissionsByModule`, `createExecPermission`, `updPermission`,

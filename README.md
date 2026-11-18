@@ -40,7 +40,7 @@ The permission model is **flat**: a permission is just a unique `tag` with a hum
 `title` (table `IAM_PERMISSION`). Access profiles are associated with permissions by tag
 (table `IAM_ACCESSPROFILE_PERMISSION`), users are associated with access profiles
 (table `IAM_ACCESSPROFILE_USER`), and authorization is checked with
-`iam/permission->canExecute('<tag>')`. There are no modules, entities or CRUD flags.
+`iam/permission->requireAny('<tag>')`. There are no modules, entities or CRUD flags.
 
 #### Settings file schema
 

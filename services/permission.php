@@ -107,7 +107,7 @@ class Permission extends Service
   }
 
   // Validate if the logged user has the specified permission:
-  public function canExecute(string|array $prmTags, bool $throwException = true): bool
+  public function requireAny(string|array $prmTags, bool $throwException = true): bool
   {
     // If there's no logged user, validation fails:
     $user = $this->getService('iam/session')->getLoggedUser();
