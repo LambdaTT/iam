@@ -9,15 +9,17 @@ class CreateCustomPermissionTables extends Migration
 {
   public function apply()
   {
+    // NOTA: a coluna id_mdc_module e sua FK para MDC_MODULE foram removidas desta migration (modelo
+    // CRUD legado). O módulo modcontrol do framework foi descontinuado no overhaul de permissões do
+    // IAM, então MDC_MODULE não existe mais — mantê-la quebrava o warm-up em banco novo. Esta tabela
+    // é descartada logo depois pela migration 1794932058 (novo modelo flat de permissões).
     $this->Table('IAM_CUSTOM_PERMISSION', 'Custom Permission')
       ->id('id_iam_custom_permission')
       ->string('ds_key', 100)
       ->datetime('dt_created')->setDefaultValue(DbVocab::SQL_CURTIMESTAMP())
       ->fk('id_iam_user_created')->nullable()->setDefaultValue(null)
       ->string('ds_title', 100)
-      ->fk('id_mdc_module')
       ->Index('KEY', DbVocab::IDX_UNIQUE)->onColumn('ds_key')
-      ->Foreign('id_mdc_module')->references('id_mdc_module')->atTable('MDC_MODULE')->onUpdate(DbVocab::FKACTION_CASCADE)->onDelete(DbVocab::FKACTION_CASCADE)
       ->Foreign('id_iam_user_created')->references('id_iam_user')->atTable('IAM_USER')->onUpdate(DbVocab::FKACTION_CASCADE)->onDelete(DbVocab::FKACTION_SETNULL);
 
     $this->Table('IAM_ACCESSPROFILE_CUSTOM_PERMISSION', 'Custom Permission on Access Profile')
