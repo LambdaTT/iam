@@ -54,7 +54,7 @@ class User extends Service
     $this->pswdLvl = getenv('IAM_PASSWORD_LVL') ?? 0;
   }
 
-  public function setPswdLvl(int $pswdLvl)
+  public function setPswdLvl(int $pswdLvl): void
   {
     if ($pswdLvl < 0) $pswdLvl = 0;
     if ($pswdLvl > 3) $pswdLvl = 3; // 0 = no requirements, 1 = uppercase, 2 = numbers, 3 = special
@@ -62,11 +62,11 @@ class User extends Service
   }
 
   // Get a list of registered users, based on parameters.
-  public function list($params = [], $listAdmin = false, $listHidden = false)
+  public function list($params = [], $listAdmin = false, $listHidden = false): array
   {
     if (!$listAdmin) $params['do_is_superadmin'] = 'N';
     if (!$listHidden) $params['do_hidden'] = 'N';
-    
+
     return $this->getDao(self::USER_TABLE)
       ->bindParams($params)
       ->find(
@@ -91,7 +91,7 @@ class User extends Service
   }
 
   // Get a single user data, based on parameters. If no user is found, returns null.
-  public function get($params = [])
+  public function get($params = []): ?object
   {
     return $this->getDao(self::USER_TABLE)
       ->bindParams($params)
@@ -114,57 +114,14 @@ class User extends Service
 
   public function requireId(array $usrFilters = []): int
   {
-    if(empty($usrId = $this->get($usrFilters)?->id_iam_user))
+    if (empty($usrId = $this->get($usrFilters)?->id_iam_user))
       throw new NotFound("O usuário solicitado não foi encontrado.");
 
     return $usrId;
   }
 
-  public function listProfiles($usrFilters = []): array
-  {
-    $usrId = $this->requireId($usrFilters);
-
-    $prfBridgeTbName = self::PRFBRIDGE_TABLE;
-    $profileTbName = self::PROFILE_TABLE;
-    return $this->getDao($prfBridgeTbName)
-      ->filter('usrId')->equalsTo($usrId)
-      ->find(
-        "SELECT 
-          prf.*,
-          (CASE
-            WHEN assoc.id_iam_accessprofile_user IS NOT NULL THEN 'Y'
-            ELSE 'N'
-           END) AS attached
-        FROM `$prfBridgeTbName` assoc
-        JOIN `$profileTbName` prf
-        ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
-        WHERE assoc.id_iam_user = ?usrId?"
-      );
-  }
-
-  public function listPermissions($usrFilters = []): array
-  {
-    $usrId = $this->requireId($usrFilters);
-
-    $prfBridgeTbName = self::PRFBRIDGE_TABLE;
-    $prmBridgeTbName = self::PRMBRIDGE_TABLE;
-    $prmTbName = self::PERMISSION_TABLE;
-    return $this->getDao($prfBridgeTbName)
-      ->filter('userId')->equalsTo($usrId)
-      ->find(
-        "SELECT DISTINCT 
-            prm.*
-          FROM `$prfBridgeTbName` prf
-          JOIN `$prmBridgeTbName` assoc 
-          ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
-          JOIN `$prmTbName` prm
-          ON assoc.id_iam_permission = prm.id_iam_permission
-          WHERE prf.id_iam_user = ?userId?"
-      );
-  }
-
   // Creates a new user register.
-  public function create(&$data)
+  public function create(array|object &$data): object
   {
     // Validates new user email and password:
     $this->validateEmail($data);
@@ -212,7 +169,7 @@ class User extends Service
   }
 
   // Updates an user, identified by parameters, with the passed data.
-  public function updUser($params, &$data)
+  public function updUser(array $params, array|object &$data): int
   {
     // Removes forbidden fields from $data:
     $usrdata = $this->getService('utils/misc')->dataBlacklist($data, [
@@ -275,7 +232,7 @@ class User extends Service
   }
 
   // Removes an user, identified by parameters, from the database.
-  public function remove($params)
+  public function remove(array $params): int
   {
     // Retrieves user's data.
     $usr = $this->get($params);
@@ -292,8 +249,115 @@ class User extends Service
       ->delete();
   }
 
+  public function listProfiles(array $usrFilters = []): array
+  {
+    $usrId = $this->requireId($usrFilters);
+
+    $prfBridgeTbName = self::PRFBRIDGE_TABLE;
+    $profileTbName = self::PROFILE_TABLE;
+    return $this->getDao($prfBridgeTbName)
+      ->filter('usrId')->equalsTo($usrId)
+      ->find(
+        "SELECT 
+          prf.*,
+          (CASE
+            WHEN assoc.id_iam_accessprofile_user IS NOT NULL THEN 'Y'
+            ELSE 'N'
+           END) AS attached
+        FROM `$prfBridgeTbName` assoc
+        JOIN `$profileTbName` prf
+        ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
+        WHERE assoc.id_iam_user = ?usrId?"
+      );
+  }
+
+  public function clearUserProfiles(array $usrFilters = []): bool
+  {
+    $usrId = $this->requireId($usrFilters);
+
+    return $this->getDao(self::PRFBRIDGE_TABLE)
+      ->filter('id_iam_user')->equalsTo($usrId)
+      ->delete() > 0;
+  }
+
+  public function attachProfiles(array $usrFilters = [], array|string $prfTags = []): int
+  {
+    $prfTags = array_filter(
+      $this->getService('iam/accessprofile')->normalizeTagList($prfTags),
+      fn($t) => !in_array($t, array_map(
+        fn($p) => $p->ds_tag,
+        $this->listProfiles($usrFilters)
+      ))
+    );
+    $usrIds = array_map(
+      fn($usr) => $usr->id_iam_user,
+      $this->list($usrFilters)
+    );
+    if (empty($prfTags) || empty($usrIds)) return 0;
+
+    $prfIds = array_map(
+      fn($prf) => $prf->id_iam_accessprofile,
+      $this->getService('iam/accessprofile')->list(['ds_tag' => '$in|' . implode('|', $prfTags)])
+    );
+    if (empty($prfIds)) throw new NotFound("Os perfis de acesso solicitados não puderam ser encontrados.");
+
+    $counter = 0;
+    foreach ($usrIds as $uId) {
+      $this->getDao(self::PRFBRIDGE_TABLE)
+        ->insert(array_map(fn($pId) => [
+          'id_iam_user' => $uId,
+          'id_iam_accessprofile' => $pId
+        ], $prfIds));
+    }
+
+    return $counter;
+  }
+
+  public function detachProfiles(array $usrFilters = [], array|string $prfTags = []): int
+  {
+    $prfTags = $this->getService('iam/accessprofile')->normalizeTagList($prfTags);
+    $usrIds = array_map(
+      fn($usr) => $usr->id_iam_user,
+      $this->list($usrFilters)
+    );
+    if (empty($prfTags) || empty($usrIds)) return 0;
+
+    $prfIds = array_map(
+      fn($prf) => $prf->id_iam_accessprofile,
+      $this->getService('iam/accessprofile')->list(['ds_tag' => '$in|' . implode('|', $prfTags)])
+    );
+
+    if (empty($prfIds)) throw new NotFound("Os perfis de acesso solicitados não puderam ser encontrados.");
+
+    return $this->getDao(self::PRFBRIDGE_TABLE)
+      ->filter('id_iam_user')->in($usrIds)
+      ->and('id_iam_accessprofile')->in($prfIds)
+      ->delete();
+  }
+
+  public function listPermissions(array $usrFilters = []): array
+  {
+    $usrId = $this->requireId($usrFilters);
+
+    $prfBridgeTbName = self::PRFBRIDGE_TABLE;
+    $prmBridgeTbName = self::PRMBRIDGE_TABLE;
+    $prmTbName = self::PERMISSION_TABLE;
+    return $this->getDao($prfBridgeTbName)
+      ->filter('userId')->equalsTo($usrId)
+      ->find(
+        "SELECT DISTINCT 
+            prm.*
+          FROM `$prfBridgeTbName` prf
+          JOIN `$prmBridgeTbName` assoc 
+          ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
+          JOIN `$prmTbName` prm
+          ON assoc.id_iam_permission = prm.id_iam_permission
+          WHERE prf.id_iam_user = ?userId?"
+      );
+  }
+
   // Sends a "change password" e-mail to the user identified by its e-mail address.
-  public function requestPasswordReset($email)
+  public function requestPasswordReset(string $email): object
   {
     // Check for a valid e-mail address
     if (filter_var($email, FILTER_VALIDATE_EMAIL) === false)
@@ -325,7 +389,7 @@ class User extends Service
    * @param ?int $userId The ID of the user to exclude from the validation check (optional).
    * @throws Exception If the e-mail is invalid or already registered by another user.
    */
-  private function validateEmail($data, $userId = null)
+  private function validateEmail(array|object $data, ?int $userId = null): void
   {
     if (empty($data['ds_email'])) return;
 
@@ -358,7 +422,7 @@ class User extends Service
    * @param ?string $password The password to validate.
    * @throws Exception If the password does not meet the security requirements.
    */
-  private function validatePassword(?string $password = null)
+  private function validatePassword(?string $password = null): void
   {
     if (empty($password)) return;
 
@@ -390,7 +454,7 @@ class User extends Service
    *  @param  array $data The array to be filtered
    *  @return array  An array containing only user-related fields
    */
-  public function filterUserData(&$data)
+  public function filterUserData(array|object &$data): array|object
   {
     require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
     $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
@@ -407,7 +471,7 @@ class User extends Service
    * @param   array $data The array to be cleaned
    * @return  array Returns the cleaned $data array
    */
-  public function removeUserData(&$data)
+  public function removeUserData(array|object &$data): array|object
   {
     require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
     $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
@@ -428,7 +492,7 @@ class User extends Service
    * @param   array $data The array to be searched
    * @return  bool Returns true if any user-related field is found, or false otherwise.
    */
-  public function hasUserData($data)
+  public function hasUserData(array|object $data): bool
   {
     $userFields = [
       'ds_email',

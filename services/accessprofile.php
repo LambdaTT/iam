@@ -32,7 +32,6 @@ class Accessprofile extends Service
 {
 
   private const PROFILE_TABLE = 'IAM_ACCESSPROFILE';
-  private const USERBRIDGE_TABLE = 'IAM_ACCESSPROFILE_USER';
   private const PRMBRIDGE_TABLE = 'IAM_ACCESSPROFILE_PERMISSION';
   private const PERMISSION_TABLE = 'IAM_PERMISSION';
 
@@ -76,32 +75,10 @@ class Accessprofile extends Service
 
   public function requireId(array $prfFilters = []): int
   {
-    if(empty($prfId = $this->get($prfFilters)?->id_iam_accessprofile))
+    if (empty($prfId = $this->get($prfFilters)?->id_iam_accessprofile))
       throw new NotFound("O perfil de acesso solicitado não foi encontrado.");
 
     return $prfId;
-  }
-
-  public function listPermissions(array $prfFilters = []): array
-  {
-    $prfId = $this->requireId($prfFilters);
-
-    $prmBridgeTbName = self::PRMBRIDGE_TABLE;
-    $permissionTbName = self::PERMISSION_TABLE;
-    return $this->getDao($prmBridgeTbName)
-      ->filter('prfId')->equalsTo($prfId)
-      ->find(
-        "SELECT 
-          prm.*,
-          (CASE
-            WHEN assoc.id_iam_accessprofile_permission IS NOT NULL THEN 'Y'
-            ELSE 'N'
-           END) AS attached
-        FROM `$prmBridgeTbName` assoc
-        RIGHT JOIN `$permissionTbName` prm
-        ON prm.id_iam_permission = assoc.id_iam_permission
-        AND assoc.id_iam_accessprofile = ?prfId?"
-      );
   }
 
   // Create a new access profile in the database, then returns its new register.
@@ -157,45 +134,105 @@ class Accessprofile extends Service
       ->delete();
   }
 
-  public function attachToUser(array $prfParams, array $usrParams): object
+  public function listPermissions(array $prfFilters = []): array
   {
-    if (empty($usrId = $this->getService('iam/user')->get($usrParams)?->id_iam_user)) 
-      throw new NotFound("O usuário solicitado não foi encontrado.");
+    $prfId = $this->requireId($prfFilters);
 
-    if (empty($prfId = $this->get($prfParams)?->id_iam_accessprofile)) 
-      throw new NotFound("O perfil solicitado não foi encontrado.");
-
-    return $this->getAssociation($usrId, $prfId) ?? $this->createAssociation($usrId, $prfId);
+    $prmBridgeTbName = self::PRMBRIDGE_TABLE;
+    $permissionTbName = self::PERMISSION_TABLE;
+    return $this->getDao($prmBridgeTbName)
+      ->filter('prfId')->equalsTo($prfId)
+      ->find(
+        "SELECT 
+          prm.*,
+          (CASE
+            WHEN assoc.id_iam_accessprofile_permission IS NOT NULL THEN 'Y'
+            ELSE 'N'
+           END) AS attached
+        FROM `$prmBridgeTbName` assoc
+        RIGHT JOIN `$permissionTbName` prm
+        ON prm.id_iam_permission = assoc.id_iam_permission
+        AND assoc.id_iam_accessprofile = ?prfId?"
+      );
   }
 
-  public function detachFromUser(array $prfParams, array $usrParams): int
+  public function clearPermissions(array $prfFilters = []): bool
   {
-    if (empty($usrId = $this->getService('iam/user')->get($usrParams)?->id_iam_user)) 
-      throw new NotFound("O usuário solicitado não foi encontrado.");
+    $prfId = $this->requireId($prfFilters);
 
-    if (empty($prfId = $this->get($prfParams)?->id_iam_accessprofile)) 
-      throw new NotFound("O perfil solicitado não foi encontrado.");
+    return $this->getDao(self::PRMBRIDGE_TABLE)
+      ->filter('id_iam_accessprofile')->equalsTo($prfId)
+      ->delete() > 0;
+  }
 
-    return $this->getDao(self::USERBRIDGE_TABLE)
-      ->filter('id_iam_user')->equalsTo($usrId)
-      ->and('id_iam_accessprofile')->equalsTo($prfId)
+  public function attachPermissions(array $prfFilters = [], array|string $prmTags = []): int
+  {
+    $prmTags = array_filter(
+      $this->getService('iam/permission')->normalizeTagList($prmTags),
+      fn($t) => !in_array($t, array_map(
+        fn($p) => $p->ds_tag,
+        $this->listPermissions($prfFilters)
+      ))
+    );
+    $prfIds = array_map(
+      fn($prf) => $prf->id_iam_accessprofile,
+      $this->list($prfFilters)
+    );
+    if (empty($prmTags) || empty($prfIds)) return 0;
+
+    $prmIds = array_map(
+      fn($prm) => $prm->id_iam_permission,
+      $this->getService('iam/permission')->list(['ds_tag' => '$in|' . implode('|', $prmTags)])
+    );
+    if (empty($prmIds)) throw new NotFound("As permissões solicitadas não foram encontradas.");
+
+    $counter = 0;
+    foreach ($prfIds as $prfId) {
+      $this->getDao(self::PRMBRIDGE_TABLE)
+        ->insert(array_map(fn($prmId) => [
+          'id_iam_accessprofile' => $prfId,
+          'id_iam_permission' => $prmId
+        ], $prmIds));
+    }
+
+    return $counter;
+  }
+
+  public function detachPermissions(array $prfFilters = [], array|string $prmTags = []): int
+  {
+    $prmTags = $this->getService('iam/permission')->normalizeTagList($prmTags);
+    $prfIds = array_map(
+      fn($prf) => $prf->id_iam_accessprofile,
+      $this->list($prfFilters)
+    );
+    if (empty($prmTags) || empty($prfIds)) return 0;
+
+    $prmIds = array_map(
+      fn($prm) => $prm->id_iam_permission,
+      $this->getService('iam/permission')->list(['ds_tag' => '$in|' . implode('|', $prmTags)])
+    );
+
+    if (empty($prmIds)) throw new NotFound("As permissões solicitadas não foram encontradas.");
+
+    return $this->getDao(self::PRMBRIDGE_TABLE)
+      ->filter('id_iam_accessprofile')->in($prfIds)
+      ->and('id_iam_permission')->in($prmIds)
       ->delete();
   }
 
-  private function getAssociation(int $userId, int $prfId): ?object
+  public function normalizeTagList(array|string $tags): array
   {
-    return $this->getDao(self::USERBRIDGE_TABLE)
-      ->filter('id_iam_user')->equalsTo($userId)
-      ->and('id_iam_accessprofile')->equalsTo($prfId)
-      ->first();
+    return array_filter(
+      is_string($tags) ?
+        [$this->normalizeSingleTag($tags)] :
+        array_map(fn($t) => $this->normalizeSingleTag($t), $tags)
+    );
   }
 
-  private function createAssociation(int $userId, int $prfId): ?object
+  public function normalizeSingleTag(string $tag): ?string
   {
-    return $this->getDao(self::USERBRIDGE_TABLE)
-      ->insert([
-        'id_iam_user' => $userId,
-        'id_iam_accessprofile' => $prfId
-      ]);
+    $normalized = strtolower(trim($tag));
+
+    return $normalized === '0' || !empty($normalized) ? $normalized : null;
   }
 }

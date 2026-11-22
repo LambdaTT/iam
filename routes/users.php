@@ -31,6 +31,11 @@ use SplitPHP\Request;
 
 class Users extends WebService
 {
+  private const USER_PERMISSIONS = [
+    'read'    => 'iam.users.read',
+    'manage'  => 'iam.users.manage',
+  ];
+
   public function init(): void
   {
     // USER ENDPOINTS:
@@ -40,6 +45,7 @@ class Users extends WebService
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAny(self::USER_PERMISSIONS);
 
       $params = [
         'ds_key' => $userKey,
@@ -60,6 +66,7 @@ class Users extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAny(self::USER_PERMISSIONS);
 
       return $this->response->withData($this->getService('iam/user')->list($params));
     });
@@ -70,7 +77,7 @@ class Users extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
-
+      $this->getService('iam/permission')->requireAll(self::USER_PERMISSIONS['manage']);
 
       $newUser = $this->getService('iam/user')->create($data);
       unset($newUser->ds_password);
@@ -86,6 +93,7 @@ class Users extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAll(self::USER_PERMISSIONS['manage']);
 
       $params = [
         'ds_key' => $userKey,
@@ -105,6 +113,7 @@ class Users extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAll(self::USER_PERMISSIONS['manage']);
 
       $data = $r->getBody();
       if (empty($data['ds_password']))
@@ -143,6 +152,7 @@ class Users extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAll(self::USER_PERMISSIONS['manage']);
 
       $params = [
         'ds_key' => $userKey
@@ -225,6 +235,7 @@ class Users extends WebService
         return $this->response->withStatus(401);
 
       // Validate Permissions:
+      $this->getService('iam/permission')->requireAny(self::USER_PERMISSIONS);
 
       $usrProfiles = $this->getService('iam/user')->listProfiles([
         'ds_key' => $userKey
@@ -233,6 +244,24 @@ class Users extends WebService
       return $this->response
         ->withStatus(200)
         ->withData($usrProfiles);
+    });
+
+    $this->addEndpoint('PUT', '/v1/profile/?userKey?', function ($userKey, Request $r) {
+      // Auth user login:
+      if (!$this->getService('iam/session')->authenticate())
+        return $this->response->withStatus(401);
+
+      // Validate Permissions:
+      $this->getService('iam/permission')->requireAll(self::USER_PERMISSIONS['manage']);
+
+      $usrFilter = ['ds_key' => $userKey];
+      $this->getService('iam/user')->clearUserProfiles($usrFilter);
+      $code = match ($this->getService('iam/user')->attachProfiles($usrFilter, $r->getBody('profile_tags')) > 0) {
+        true => 204,
+        false => 404
+      };
+
+      return $this->response->withStatus($code);
     });
   }
 }

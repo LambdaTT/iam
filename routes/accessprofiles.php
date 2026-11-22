@@ -31,6 +31,11 @@ use SplitPHP\WebService;
 
 class Accessprofiles extends WebService
 {
+  private const ACCESSPROFILE_PERMISSIONS = [
+    'read'    => 'iam.accessprofiles.read',
+    'manage'  => 'iam.accessprofiles.manage',
+  ];
+
   public function init()
   {
     // PROFILE ENDPOINTS:
@@ -41,6 +46,7 @@ class Accessprofiles extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAny(self::ACCESSPROFILE_PERMISSIONS);
 
       $data = $this->getService('iam/accessprofile')->get(['ds_key' => $profileKey]);
       if (empty($data)) return $this->response->withStatus(404);
@@ -54,6 +60,7 @@ class Accessprofiles extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAny(self::ACCESSPROFILE_PERMISSIONS);
 
       return $this->response->withData($this->getService('iam/accessprofile')->list($params));
     });
@@ -64,6 +71,7 @@ class Accessprofiles extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAll(self::ACCESSPROFILE_PERMISSIONS['manage']);
 
       $data = $r->getBody();
 
@@ -76,6 +84,7 @@ class Accessprofiles extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAll(self::ACCESSPROFILE_PERMISSIONS['manage']);
 
       $params = [
         'ds_key' => $profileKey
@@ -94,6 +103,7 @@ class Accessprofiles extends WebService
       if (!$this->getService('iam/session')->authenticate()) return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAll(self::ACCESSPROFILE_PERMISSIONS['manage']);
 
       $params = [
         'ds_key' => $profileKey
@@ -114,6 +124,7 @@ class Accessprofiles extends WebService
         return $this->response->withStatus(401);
 
       // Validate user permissions:
+      $this->getService('iam/permission')->requireAny(self::ACCESSPROFILE_PERMISSIONS);
 
       $params = [
         'ds_key' => $profileKey
@@ -124,31 +135,22 @@ class Accessprofiles extends WebService
       return $this->response->withData($data);
     });
 
-    $this->addEndpoint('POST', '/v1/permission/?profileKey?/?permissionTag?', function ($profileKey, $permissionTag) {
+    $this->addEndpoint('PUT', '/v1/permission/?profileKey?', function ($profileKey, Request $r) {
       // Auth user login:
       if (!$this->getService('iam/session')->authenticate())
         return $this->response->withStatus(401);
 
-      // Validate user permissions:
+      // Validate Permissions:
+      $this->getService('iam/permission')->requireAll(self::ACCESSPROFILE_PERMISSIONS['manage']);
 
-      $association = $this->getService('iam/permission')->associate($profileKey, $permissionTag);
+      $prfFilter = ['ds_key' => $profileKey];
+      $this->getService('iam/profile')->clearPermissions($prfFilter);
+      $code = match ($this->getService('iam/profile')->attachPermissions($prfFilter, $r->getBody('permission_tags')) > 0) {
+        true => 204,
+        false => 404
+      };
 
-      return $this->response
-        ->withStatus(201)
-        ->withData($association);
-    });
-
-    $this->addEndpoint('DELETE', '/v1/permission/?profileKey?/?permissionTag?', function ($profileKey, $permissionTag) {
-      // Auth user login:
-      if (!$this->getService('iam/session')->authenticate())
-        return $this->response->withStatus(401);
-
-      // Validate user permissions:
-
-      $deletedRows = $this->getService('iam/permission')->disassociate($profileKey, $permissionTag);
-      if ($deletedRows < 1) return $this->response->withStatus(404);
-
-      return $this->response->withStatus(204);
+      return $this->response->withStatus($code);
     });
   }
 }
