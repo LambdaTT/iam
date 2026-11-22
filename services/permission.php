@@ -30,16 +30,20 @@ use SplitPHP\Service;
 use SplitPHP\Exceptions\BadRequest;
 use SplitPHP\Exceptions\Conflict;
 use SplitPHP\Exceptions\Forbidden;
-use SplitPHP\Exceptions\NotFound;
 
 class Permission extends Service
 {
   private const PERMISSION_TABLE = 'IAM_PERMISSION';
-  private const PROFILE_TABLE = 'IAM_ACCESSPROFILE';
   private const PRFBRIDGE_TABLE = 'IAM_ACCESSPROFILE_PERMISSION';
   private const USRBRIDGE_TABLE = 'IAM_ACCESSPROFILE_USER';
 
-  public function get($filters = []): ?object
+  public function list(array $filters = []): array
+  {
+    return $this->getDao(self::PERMISSION_TABLE)
+      ->bindParams($filters)
+      ->find();
+  }
+  public function get(array $filters = []): ?object
   {
     return $this->getDao(self::PERMISSION_TABLE)
       ->bindParams($filters)
@@ -50,10 +54,10 @@ class Permission extends Service
   public function create(string $title, ?string $tag = null): object
   {
     $title = trim($title);
-    if($title == '') throw new BadRequest('Não é possível criar permissões sem título.');
+    if ($title == '') throw new BadRequest('Não é possível criar permissões sem título.');
 
-    $tag = $tag && (trim($tag) != '') ? 
-      str_replace(' ', '.', trim($tag)) : 
+    $tag = $tag && (trim($tag) != '') ?
+      str_replace(' ', '.', trim(strtolower($tag))) :
       $this->genTagFromTitle($title);
 
     $this->checkForTagConflict($tag);
@@ -73,40 +77,7 @@ class Permission extends Service
       ->delete();
   }
 
-  // Attach a custom(execution) permission to an access profile, both identified by their unique keys.
-  public function associate(string $prfNeedle, string $prmTag): object
-  {
-    if (empty($prfId = $this->getDao(self::PROFILE_TABLE)
-      ->filter('ds_key')->equalsTo($prfNeedle)
-      ->or('ds_tag')->equalsTo($prfNeedle)
-      ->first()?->id_iam_accessprofile)) throw new NotFound("O perfil de acesso solicitado não foi encontrado.");
-    
-    if (empty($prmId = $this->getDao(self::PERMISSION_TABLE)
-      ->filter('ds_tag')->equalsTo($prmTag)
-      ->first()?->id_iam_permission)) throw new NotFound("A permissão solicitada não foi encontrada.");
-
-    return $this->getAssociation($prfId, $prmId) ?? $this->createAssociation($prfId, $prmId);
-  }
-
-  public function disassociate(string $prfNeedle, string $prmTag): int
-  {
-    if (empty($prf = $this->getDao(self::PROFILE_TABLE)
-      ->filter('ds_key')->equalsTo($prfNeedle)
-      ->or('ds_tag')->equalsTo($prfNeedle)
-      ->first())) throw new NotFound("O perfil de acesso solicitado não foi encontrado.");
-
-    if (empty($prm = $this->getDao(self::PERMISSION_TABLE)
-      ->filter('ds_tag')->equalsTo($prmTag)
-      ->first())) throw new NotFound("A permissão solicitada não foi encontrada.");
-
-
-    return $this->getDao(self::PRFBRIDGE_TABLE)
-      ->filter('id_iam_permission')->equalsTo($prm->id_iam_permission)
-      ->and('id_iam_accessprofile')->equalsTo($prf->id_iam_accessprofile)
-      ->delete();
-  }
-
-  // Validate if the logged user has the specified permission:
+  // Validate if the logged user has ay of the specified permission:
   public function requireAny(string|array $prmTags, bool $throwException = true): bool
   {
     // If there's no logged user, validation fails:
@@ -115,26 +86,64 @@ class Permission extends Service
       if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
       else return false;
     }
-      
+
     // If logged user is super admin, validation succeeds:
     if ($user->do_is_superadmin == 'Y') return true;
-    
-    $prmTags = is_string($prmTags) ? [$prmTags] : $prmTags;
-    if (empty($prmTags)) {
+
+    $prmTags = array_filter(is_string($prmTags) ? [$prmTags] : $prmTags);
+    if (empty($prmTags)) return true;
+
+    $hasPermission = !empty($this->findUserPermissionTags($prmTags, $user->id_iam_user));
+
+    if (!$hasPermission) {
       if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
       else return false;
     }
 
+    return true;
+  }
+
+  public function requireAll(string|array $prmTags, bool $throwException = true): bool
+  {
+    // If there's no logged user, validation fails:
+    $user = $this->getService('iam/session')->getLoggedUser();
+    if (empty($user)) {
+      if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
+      else return false;
+    }
+
+    // If logged user is super admin, validation succeeds:
+    if ($user->do_is_superadmin == 'Y') return true;
+
+    $prmTags = array_filter(is_string($prmTags) ? [$prmTags] : $prmTags);
+    if (empty($prmTags)) return true;
+
+    $hasPermission = empty(array_diff($prmTags, $this->findUserPermissionTags($prmTags, $user->id_iam_user)));
+
+    if (!$hasPermission) {
+      if ($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
+      else return false;
+    }
+
+    return true;
+  }
+
+  private function findUserPermissionTags(array $prmTags, int $userId): array
+  {
     $prmTbName = self::PERMISSION_TABLE;
     $bridgeTbName = self::PRFBRIDGE_TABLE;
-    $prfTbName = self::PROFILE_TABLE;
     $usrBridgeTbName = self::USRBRIDGE_TABLE;
-    $hasPermission = !empty($this->getDao($prmTbName)
-      ->filter('prmTags')->in($prmTags)
-      ->and('userId')->equalsTo($user->id_iam_user)
-      ->first(
-        "SELECT DISTINCT 
-            prm.id_iam_permission
+
+    $prmTags = array_map(fn($t) => strtolower($t), $prmTags);
+
+    return array_map(
+      fn($row) => $row->ds_tag,
+      $this->getDao($prmTbName)
+        ->filter('prmTags')->in($prmTags)
+        ->and('userId')->equalsTo($userId)
+        ->find(
+          "SELECT DISTINCT 
+            prm.ds_tag
           FROM `$prmTbName` prm 
           JOIN `$bridgeTbName` assoc
           ON assoc.id_iam_permission = prm.id_iam_permission
@@ -142,15 +151,8 @@ class Permission extends Service
           ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
           AND prf.id_iam_user = ?userId?
           WHERE prm.ds_tag IN ?prmTags?"
-      )
+        )
     );
-
-    if(!$hasPermission){
-      if($throwException) throw new Forbidden("Você não possui as permissões necessárias para executar esta ação");
-      else return false;
-    }
-
-    return true;
   }
 
   private function checkForTagConflict(string $tag): void
@@ -159,7 +161,7 @@ class Permission extends Service
       ->filter('ds_tag')->equalsTo($tag)
       ->first());
 
-    if($conflicting) throw new Conflict("Já existe outra permissão com esta mesma tag.");
+    if ($conflicting) throw new Conflict("Já existe outra permissão com esta mesma tag.");
   }
 
   private function genTagFromTitle(string $title): string
@@ -167,21 +169,19 @@ class Permission extends Service
     return str_replace(' ', '.', strtolower($title));
   }
 
-  private function getAssociation(int $prfId, int $prmId): ?object
+  public function normalizeTagList(array|string $tags): array
   {
-    return $this->getDao(self::PRFBRIDGE_TABLE)
-      ->filter('id_iam_accessprofile')->equalsTo($prfId)
-      ->and('id_iam_permission')->equalsTo($prmId)
-      ->first();
+    return array_filter(
+      is_string($tags) ?
+        [$this->normalizeSingleTag($tags)] :
+        array_map(fn($t) => $this->normalizeSingleTag($t), $tags)
+    );
   }
 
-  private function createAssociation(int $prfId, int $prmId): ?object
+  public function normalizeSingleTag(string $tag): ?string
   {
-    return $this->getDao(self::PRFBRIDGE_TABLE)
-      ->insert([
-        'id_iam_accessprofile' => $prfId,
-        'id_iam_permission' => $prmId,
-        'id_iam_user_created' => $this->getService('iam/session')->getLoggedUser()?->id_iam_user,
-      ]);
+    $normalized = strtolower(trim($tag));
+
+    return $normalized === '0' || !empty($normalized) ? $normalized : null;
   }
 }
