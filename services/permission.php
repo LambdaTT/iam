@@ -90,7 +90,7 @@ class Permission extends Service
     // If logged user is super admin, validation succeeds:
     if ($user->do_is_superadmin == 'Y') return true;
 
-    $prmTags = array_filter(is_string($prmTags) ? [$prmTags] : $prmTags);
+    $prmTags = array_filter(is_string($prmTags) ? [$prmTags] : array_values($prmTags));
     if (empty($prmTags)) return true;
 
     $hasPermission = !empty($this->findUserPermissionTags($prmTags, $user->id_iam_user));
@@ -115,7 +115,7 @@ class Permission extends Service
     // If logged user is super admin, validation succeeds:
     if ($user->do_is_superadmin == 'Y') return true;
 
-    $prmTags = array_filter(is_string($prmTags) ? [$prmTags] : $prmTags);
+    $prmTags = array_filter(is_string($prmTags) ? [$prmTags] : array_values($prmTags));
     if (empty($prmTags)) return true;
 
     $hasPermission = empty(array_diff($prmTags, $this->findUserPermissionTags($prmTags, $user->id_iam_user)));
