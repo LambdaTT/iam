@@ -144,8 +144,10 @@ class Accessprofiles extends WebService
       $this->getService('iam/permission')->requireAll(self::ACCESSPROFILE_PERMISSIONS['manage']);
 
       $prfFilter = ['ds_key' => $profileKey];
-      $this->getService('iam/profile')->clearPermissions($prfFilter);
-      $code = match ($this->getService('iam/profile')->attachPermissions($prfFilter, $r->getBody('permission_tags')) > 0) {
+      $permissionTags = $r->getBody('permission_tags');
+      
+      $this->getService('iam/accessprofile')->clearPermissions($prfFilter);
+      $code = match ($this->getService('iam/accessprofile')->attachPermissions($prfFilter, $permissionTags) > 0) {
         true => 204,
         false => 404
       };

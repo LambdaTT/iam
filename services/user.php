@@ -265,9 +265,9 @@ class User extends Service
             ELSE 'N'
            END) AS attached
         FROM `$prfBridgeTbName` assoc
-        JOIN `$profileTbName` prf
+        RIGHT JOIN `$profileTbName` prf
         ON prf.id_iam_accessprofile = assoc.id_iam_accessprofile
-        WHERE assoc.id_iam_user = ?usrId?"
+        AND assoc.id_iam_user = ?usrId?"
       );
   }
 
@@ -280,28 +280,29 @@ class User extends Service
       ->delete() > 0;
   }
 
+  /**
+   * Idempotently attaches profiles to users. Returns the number of attachments made.
+   * @param array $usrFilters 
+   * @param array|string $prfTags 
+   * @return int 
+   * @throws NotFound 
+   */
   public function attachProfiles(array $usrFilters = [], array|string $prfTags = []): int
   {
-    $prfTags = array_filter(
-      $this->getService('iam/accessprofile')->normalizeTagList($prfTags),
-      fn($t) => !in_array($t, array_map(
-        fn($p) => $p->ds_tag,
-        $this->listProfiles($usrFilters)
-      ))
-    );
+    $toAttach = $this->findAttachableProfileTags($usrFilters, $prfTags);
+
     $usrIds = array_map(
       fn($usr) => $usr->id_iam_user,
-      $this->list($usrFilters)
+      $this->list(params: $usrFilters, listHidden: true)
     );
-    if (empty($prfTags) || empty($usrIds)) return 0;
+    if (empty($toAttach) || empty($usrIds)) return 0;
 
     $prfIds = array_map(
       fn($prf) => $prf->id_iam_accessprofile,
-      $this->getService('iam/accessprofile')->list(['ds_tag' => '$in|' . implode('|', $prfTags)])
+      $this->getService('iam/accessprofile')->list(['ds_tag' => '$in|' . implode('|', $toAttach)])
     );
     if (empty($prfIds)) throw new NotFound("Os perfis de acesso solicitados não puderam ser encontrados.");
 
-    $counter = 0;
     foreach ($usrIds as $uId) {
       $this->getDao(self::PRFBRIDGE_TABLE)
         ->insert(array_map(fn($pId) => [
@@ -310,7 +311,7 @@ class User extends Service
         ], $prfIds));
     }
 
-    return $counter;
+    return count($prfIds) * count($usrIds);
   }
 
   public function detachProfiles(array $usrFilters = [], array|string $prfTags = []): int
@@ -384,6 +385,66 @@ class User extends Service
   }
 
   /**
+   *  Remove fields in $data that are not user-related
+   *  @param  array $data The array to be filtered
+   *  @return array  An array containing only user-related fields
+   */
+  public function filterUserData(array|object &$data): array|object
+  {
+    require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
+    $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
+
+    $data = $this->getService('utils/misc')->dataWhiteList($data, array_map(function ($c) {
+      return $c['Field'];
+    }, $tbInfo['columns']));
+
+    return $data;
+  }
+
+  /**
+   * Clean the content of $data, removing any user-related information.
+   * @param   array $data The array to be cleaned
+   * @return  array Returns the cleaned $data array
+   */
+  public function removeUserData(array|object &$data): array|object
+  {
+    require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
+    $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
+
+    $filter = [
+      ...array_map(function ($c) {
+        return $c['Field'];
+      }, $tbInfo['columns']),
+      'avatar'
+    ];
+
+    $data = $this->getService('utils/misc')->dataBlackList($data, $filter);
+
+    return $data;
+  }
+
+  /**
+   * Check if there are any user-related fields in $data
+   * @param   array $data The array to be searched
+   * @return  bool Returns true if any user-related field is found, or false otherwise.
+   */
+  public function hasUserData(array|object $data): bool
+  {
+    $userFields = [
+      'ds_email',
+      'ds_password',
+      'ds_first_name',
+      'ds_last_name',
+      'ds_phone1',
+      'ds_phone2',
+      'ds_company',
+      'id_fmn_file_avatar',
+      'do_hidden',
+    ];
+    return !empty(array_intersect_key(array_flip($userFields), $data));
+  }
+
+  /**
    * Validates the e-mail address of a user.
    * @param array $data The data containing the e-mail address to validate.
    * @param ?int $userId The ID of the user to exclude from the validation check (optional).
@@ -450,61 +511,25 @@ class User extends Service
   }
 
   /**
-   *  Remove fields in $data that are not user-related
-   *  @param  array $data The array to be filtered
-   *  @return array  An array containing only user-related fields
+   * Filters attaching profile tags removing the ones which already are attached to the identified users.
+   * Provides idempotency for the profile attachment to users.
+   * @param array $usrFilters 
+   * @param array|string $prfTags 
+   * @return array 
    */
-  public function filterUserData(array|object &$data): array|object
+  private function findAttachableProfileTags(array $usrFilters = [], array|string $prfTags = []): array
   {
-    require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
-    $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
+    $prfTags = $this->getService('iam/accessprofile')->normalizeTagList($prfTags);
+    $allProfiles = $this->listProfiles($usrFilters);
+    $notAtachedProfiles = array_filter($allProfiles, fn($p) => $p->attached == 'N');
+    $notAttachedProfileTags = array_map(
+      fn($p) => $p->ds_tag,
+      $notAtachedProfiles
+    );
 
-    $data = $this->getService('utils/misc')->dataWhiteList($data, array_map(function ($c) {
-      return $c['Field'];
-    }, $tbInfo['columns']));
-
-    return $data;
-  }
-
-  /**
-   * Clean the content of $data, removing any user-related information.
-   * @param   array $data The array to be cleaned
-   * @return  array Returns the cleaned $data array
-   */
-  public function removeUserData(array|object &$data): array|object
-  {
-    require_once CORE_PATH . '/database/' . Database::getRdbmsName() . '/class.dbmetadata.php';
-    $tbInfo = Dbmetadata::tbInfo(self::USER_TABLE);
-
-    $filter = [
-      ...array_map(function ($c) {
-        return $c['Field'];
-      }, $tbInfo['columns']),
-      'avatar'
-    ];
-
-    $data = $this->getService('utils/misc')->dataBlackList($data, $filter);
-
-    return $data;
-  }
-  /**
-   * Check if there are any user-related fields in $data
-   * @param   array $data The array to be searched
-   * @return  bool Returns true if any user-related field is found, or false otherwise.
-   */
-  public function hasUserData(array|object $data): bool
-  {
-    $userFields = [
-      'ds_email',
-      'ds_password',
-      'ds_first_name',
-      'ds_last_name',
-      'ds_phone1',
-      'ds_phone2',
-      'ds_company',
-      'id_fmn_file_avatar',
-      'do_hidden',
-    ];
-    return !empty(array_intersect_key(array_flip($userFields), $data));
+    return array_filter(
+      $prfTags,
+      fn($t) => in_array($t, $notAttachedProfileTags)
+    );
   }
 }

@@ -165,28 +165,28 @@ class Accessprofile extends Service
       ->delete() > 0;
   }
 
+  /**
+   * Idempotently attaches permissions to profiles. Returns the number of attachments made.
+   * @param array $prfFilters 
+   * @param array|string $prmTags 
+   * @return int 
+   * @throws NotFound 
+   */
   public function attachPermissions(array $prfFilters = [], array|string $prmTags = []): int
   {
-    $prmTags = array_filter(
-      $this->getService('iam/permission')->normalizeTagList($prmTags),
-      fn($t) => !in_array($t, array_map(
-        fn($p) => $p->ds_tag,
-        $this->listPermissions($prfFilters)
-      ))
-    );
+    $toAttach = $this->findAttachablePermissionTags($prfFilters, $prmTags);
     $prfIds = array_map(
       fn($prf) => $prf->id_iam_accessprofile,
       $this->list($prfFilters)
     );
-    if (empty($prmTags) || empty($prfIds)) return 0;
+    if (empty($toAttach) || empty($prfIds)) return 0;
 
     $prmIds = array_map(
       fn($prm) => $prm->id_iam_permission,
-      $this->getService('iam/permission')->list(['ds_tag' => '$in|' . implode('|', $prmTags)])
+      $this->getService('iam/permission')->list(['ds_tag' => '$in|' . implode('|', $toAttach)])
     );
     if (empty($prmIds)) throw new NotFound("As permissões solicitadas não foram encontradas.");
 
-    $counter = 0;
     foreach ($prfIds as $prfId) {
       $this->getDao(self::PRMBRIDGE_TABLE)
         ->insert(array_map(fn($prmId) => [
@@ -195,7 +195,7 @@ class Accessprofile extends Service
         ], $prmIds));
     }
 
-    return $counter;
+    return count($toAttach) * count($prfIds);
   }
 
   public function detachPermissions(array $prfFilters = [], array|string $prmTags = []): int
@@ -234,5 +234,28 @@ class Accessprofile extends Service
     $normalized = strtolower(trim($tag));
 
     return $normalized === '0' || !empty($normalized) ? $normalized : null;
+  }
+
+  /**
+   * Filters attaching permission tags removing the ones which already are attached to the identified profiles.
+   * Provides idempotency for the permission attachment to profiles.
+   * @param array $profileFilters 
+   * @param array|string $prmTags 
+   * @return array 
+   */
+  private function findAttachablePermissionTags(array $profileFilters = [], array|string $prmTags = []): array
+  {
+    $prmTags = $this->getService('iam/permission')->normalizeTagList($prmTags);
+    $allPermissions = $this->listPermissions($profileFilters);
+    $notAtachedPermissions = array_filter($allPermissions, fn($p) => $p->attached == 'N');
+    $notAttachedPermissionTags = array_map(
+      fn($p) => $p->ds_tag,
+      $notAtachedPermissions
+    );
+
+    return array_filter(
+      $prmTags,
+      fn($t) => in_array($t, $notAttachedPermissionTags)
+    );
   }
 }

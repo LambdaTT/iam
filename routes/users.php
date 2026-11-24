@@ -24,6 +24,7 @@
 
 namespace Iam\Routes;
 
+use SplitPHP\Database\Dao;
 use SplitPHP\WebService;
 use SplitPHP\Exceptions\NotFound;
 use SplitPHP\Exceptions\BadRequest;
@@ -255,8 +256,11 @@ class Users extends WebService
       $this->getService('iam/permission')->requireAll(self::USER_PERMISSIONS['manage']);
 
       $usrFilter = ['ds_key' => $userKey];
+      $profileTags = $r->getBody('profile_tags');
+      
       $this->getService('iam/user')->clearUserProfiles($usrFilter);
-      $code = match ($this->getService('iam/user')->attachProfiles($usrFilter, $r->getBody('profile_tags')) > 0) {
+      Dao::flush();
+      $code = match ($this->getService('iam/user')->attachProfiles($usrFilter, $profileTags) > 0) {
         true => 204,
         false => 404
       };
